@@ -11,12 +11,17 @@ Features:
 - Smart content extraction (BeautifulSoup + readability)
 - URL resolution (direct URLs, no redirects)
 - Retry with exponential backoff
+- Comprehensive error handling
 
 Usage:
     from agent_search.core import AgentSearchLite
     search = AgentSearchLite()
     result = search.search("query", mode="code")
     results = search.extract(["https://example.com"])
+
+Copyright (c) 2026 Agent Search Lite Contributors.
+Based on Agent Reach by Panniantong (MIT licensed).
+See LICENSE for details.
 """
 
 from __future__ import annotations
@@ -38,7 +43,30 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+# Custom exceptions
+from agent_search.exceptions import (
+    AgentSearchError,
+    AllBackendsFailedError,
+    BackendError,
+    CacheError,
+    ConfigurationError,
+    InvalidModeError,
+    InvalidURLError,
+    NetworkError,
+    RateLimitError,
+    TimeoutError,
+)
+
 logger = logging.getLogger(__name__)
+
+# Version and attribution
+__version__ = "2.1.0"
+__author__ = "Agent Search Lite Contributors"
+__license__ = "MIT"
+__attribution__ = (
+    "Based on Agent Reach by Panniantong (https://github.com/Panniantong/agent-reach, MIT)."
+    "Query expansion approach inspired by brcrusoe72/agent-search (https://github.com/brcrusoe72/agent-search, MIT)."
+)
 
 # Endpoints
 _JINA_ENDPOINT = "https://r.jina.ai/"
@@ -49,6 +77,7 @@ _DDG_HTML = "https://html.duckduckgo.com/html/"
 _UA = "Mozilla/5.0 (compatible; agent-search-lite/2.0; +https://github.com/itsPremkumar/agent-search-lite)"
 _MAX_JINA_BYTES = 5 * 1024 * 1024
 _CACHE_TTL = 3600  # 1 hour
+_DEFAULT_TIMEOUT = 15.0
 
 # Strategy modes - which backends to prioritize
 STRATEGY_MODES = {
@@ -146,9 +175,10 @@ def _cache_get(key: str) -> Optional[str]:
         ).fetchone()
         conn.close()
         if row and (time.time() - row[1]) < _CACHE_TTL:
-            return row[1]
-    except Exception:
-        pass
+            return row[0]
+    except Exception as exc:
+        logger.debug("Cache read failed: %s", exc)
+        raise CacheError(f"Failed to read cache: {exc}", original_error=exc)
     return None
 
 
@@ -161,8 +191,9 @@ def _cache_set(key: str, value: str) -> None:
         )
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("Cache write failed: %s", exc)
+        # Cache write failures should not stop search
 
 
 # ---------------------------------------------------------------------------
@@ -177,8 +208,8 @@ def _resolve_ddg_url(url: str) -> str:
             params = urllib.parse.parse_qs(parsed.query)
             if "uddg" in params:
                 return urllib.parse.unquote(params["uddg"][0])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("URL resolution failed for %s: %s", url, exc)
     return url
 
 
@@ -311,7 +342,7 @@ def _extract_readable_text(html: str, max_chars: int = 10000) -> str:
     try:
         from bs4 import BeautifulSoup, Comment
     except ImportError:
-        # Fallback to basic extraction
+        logger.warning("BeautifulSoup not installed, using basic extraction")
         return _basic_text_extraction(html, max_chars)
 
     try:
@@ -335,7 +366,8 @@ def _extract_readable_text(html: str, max_chars: int = 10000) -> str:
         text = "\n".join(chunk for chunk in chunks if chunk)
 
         return text[:max_chars]
-    except Exception:
+    except Exception as exc:
+        logger.warning("BeautifulSoup extraction failed: %s, using basic", exc)
         return _basic_text_extraction(html, max_chars)
 
 
@@ -362,7 +394,7 @@ def _searxng_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
             f"{searxng_url}/search",
             params={"q": query, "format": "json", "pageno": 1},
             headers={"User-Agent": _UA},
-            timeout=15,
+            timeout=_DEFAULT_TIMEOUT,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -379,8 +411,12 @@ def _searxng_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
         ]
         if web_results:
             return {"success": True, "data": {"web": web_results}}
+    except httpx.HTTPStatusError as exc:
+        raise BackendError("searxng", f"HTTP {exc.response.status_code}", original_error=exc)
+    except httpx.RequestError as exc:
+        raise NetworkError("searxng", original_error=exc)
     except Exception as exc:
-        logger.debug("SearXNG search failed: %s", exc)
+        raise BackendError("searxng", str(exc), original_error=exc)
     return None
 
 
@@ -389,6 +425,7 @@ def _ddgs_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
     try:
         from ddgs import DDGS
     except ImportError:
+        logger.debug("DDGS package not installed")
         return None
     try:
         results = []
@@ -407,7 +444,7 @@ def _ddgs_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
         if results:
             return {"success": True, "data": {"web": results}}
     except Exception as exc:
-        logger.debug("DDGS search failed: %s", exc)
+        raise BackendError("ddgs", str(exc), original_error=exc)
     return None
 
 
@@ -460,14 +497,18 @@ def _jina_ddg_search(query: str, limit: int = 5) -> Dict[str, Any]:
             return {"success": True, "data": {"web": results}}
         return {"success": False, "error": "Jina+DDG search returned no results"}
 
+    except httpx.HTTPStatusError as exc:
+        raise BackendError("jina-ddg", f"HTTP {exc.response.status_code}", original_error=exc)
+    except httpx.RequestError as exc:
+        raise NetworkError("jina-ddg", original_error=exc)
     except Exception as exc:
-        logger.warning("Jina+DDG search failed: %s", exc)
-        return {"success": False, "error": f"Jina+DDG search failed: {exc}"}
+        raise BackendError("jina-ddg", str(exc), original_error=exc)
 
 
 def _github_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
     """Search GitHub repos via gh CLI (free, no key)."""
     if not shutil.which("gh"):
+        logger.debug("gh CLI not installed")
         return None
     try:
         result = subprocess.run(
@@ -476,6 +517,7 @@ def _github_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode != 0:
+            logger.debug("gh search failed: %s", result.stderr.strip())
             return None
         repos = json.loads(result.stdout) if result.stdout.strip() else []
         web_results = [
@@ -490,8 +532,12 @@ def _github_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
         ]
         if web_results:
             return {"success": True, "data": {"web": web_results}}
+    except subprocess.TimeoutExpired as exc:
+        raise TimeoutError("github", 30.0)
+    except json.JSONDecodeError as exc:
+        raise BackendError("github", f"Invalid JSON response: {exc}", original_error=exc)
     except Exception as exc:
-        logger.debug("GitHub search failed: %s", exc)
+        raise BackendError("github", str(exc), original_error=exc)
     return None
 
 
@@ -501,7 +547,7 @@ def _hackernews_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
         resp = httpx.get(
             f"{_HACKERNEWS_API}/search",
             params={"query": query, "tags": "story"},
-            timeout=15,
+            timeout=_DEFAULT_TIMEOUT,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -518,8 +564,12 @@ def _hackernews_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
         ]
         if web_results:
             return {"success": True, "data": {"web": web_results}}
+    except httpx.HTTPStatusError as exc:
+        raise BackendError("hackernews", f"HTTP {exc.response.status_code}", original_error=exc)
+    except httpx.RequestError as exc:
+        raise NetworkError("hackernews", original_error=exc)
     except Exception as exc:
-        logger.debug("Hacker News search failed: %s", exc)
+        raise BackendError("hackernews", str(exc), original_error=exc)
     return None
 
 
@@ -530,7 +580,7 @@ def _reddit_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
             f"{_REDDIT_BASE}/search.json",
             params={"q": query, "limit": limit, "sort": "relevance"},
             headers={"User-Agent": _UA},
-            timeout=15,
+            timeout=_DEFAULT_TIMEOUT,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -547,8 +597,12 @@ def _reddit_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
         ]
         if web_results:
             return {"success": True, "data": {"web": web_results}}
+    except httpx.HTTPStatusError as exc:
+        raise BackendError("reddit", f"HTTP {exc.response.status_code}", original_error=exc)
+    except httpx.RequestError as exc:
+        raise NetworkError("reddit", original_error=exc)
     except Exception as exc:
-        logger.debug("Reddit search failed: %s", exc)
+        raise BackendError("reddit", str(exc), original_error=exc)
     return None
 
 
@@ -574,11 +628,11 @@ class AgentSearchLite:
 
     def _get_backends_for_mode(self, mode: str) -> List[tuple[str, callable]]:
         """Get backends ordered by priority for a strategy mode."""
-        if mode in STRATEGY_MODES:
-            mode_config = STRATEGY_MODES[mode]
-            backend_names = mode_config.get("backends", list(self.all_backends.keys()))
-            return [(name, self.all_backends[name]) for name in backend_names if name in self.all_backends]
-        return [(name, fn) for name, fn in self.all_backends.items()]
+        if mode not in STRATEGY_MODES:
+            raise InvalidModeError(mode, list(STRATEGY_MODES.keys()))
+        mode_config = STRATEGY_MODES[mode]
+        backend_names = mode_config.get("backends", list(self.all_backends.keys()))
+        return [(name, self.all_backends[name]) for name in backend_names if name in self.all_backends]
 
     def search(
         self,
@@ -622,6 +676,7 @@ class AgentSearchLite:
 
         all_results = []
         sources = {}
+        errors = {}
         backends = self._get_backends_for_mode(mode)
 
         # Run backends in parallel for each query variation
@@ -644,6 +699,7 @@ class AgentSearchLite:
                         sources[name] += len(web)
                 except Exception as exc:
                     logger.debug("Backend %s failed for '%s': %s", name, q, exc)
+                    errors[name] = str(exc)
 
         if all_results:
             # Deduplicate by URL
@@ -663,13 +719,14 @@ class AgentSearchLite:
                     "sources": sources,
                     "queries": queries,
                     "mode": mode,
+                    "errors": errors if errors else None,
                 },
             }
             if use_cache:
                 _cache_set(cache_key, json.dumps(result))
             return result
 
-        return {"success": False, "error": "All search backends failed"}
+        return {"success": False, "error": "All search backends failed", "errors": errors}
 
     def extract(self, urls: List[str], char_limit: int = 15000) -> List[Dict[str, Any]]:
         """Extract content from URLs via Jina Reader."""
@@ -677,11 +734,7 @@ class AgentSearchLite:
         for url in urls:
             try:
                 if not url.startswith(("http://", "https://")):
-                    results.append({
-                        "url": url, "title": "", "content": "",
-                        "raw_content": "", "error": "Invalid URL",
-                    })
-                    continue
+                    raise InvalidURLError(url)
 
                 resp = httpx.get(
                     f"{_JINA_ENDPOINT}{url}",
@@ -713,15 +766,25 @@ class AgentSearchLite:
                     "metadata": {"source": "jina-reader", "bytes": len(body)},
                 })
 
+            except InvalidURLError as exc:
+                results.append({
+                    "url": url, "title": "", "content": "", "raw_content": "",
+                    "error": str(exc),
+                })
             except httpx.HTTPStatusError as exc:
                 results.append({
                     "url": url, "title": "", "content": "", "raw_content": "",
-                    "error": f"HTTP {exc.response.status_code}",
+                    "error": f"HTTP {exc.response.status_code}: {exc.response.reason_phrase}",
+                })
+            except httpx.RequestError as exc:
+                results.append({
+                    "url": url, "title": "", "content": "", "raw_content": "",
+                    "error": f"Network error: {exc}",
                 })
             except Exception as exc:
                 results.append({
                     "url": url, "title": "", "content": "", "raw_content": "",
-                    "error": str(exc),
+                    "error": f"Extraction failed: {exc}",
                 })
         return results
 
@@ -759,4 +822,8 @@ class AgentSearchLite:
         lines.append("Strategy Modes:")
         for mode, config in STRATEGY_MODES.items():
             lines.append(f"  • {mode}: {config['description']}")
+        lines.append("")
+        lines.append(f"Version: {__version__}")
+        lines.append(f"License: {__license__}")
+        lines.append(f"Attribution: {__attribution__}")
         return "\n".join(lines)
