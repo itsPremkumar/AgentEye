@@ -5,7 +5,7 @@ import argparse
 import json
 import sys
 
-from agent_search.core import AgentSearchLite
+from agent_search.core import AgentSearchLite, STRATEGY_MODES
 
 
 def main():
@@ -13,7 +13,7 @@ def main():
         prog="agent-search-lite",
         description="Free web search + content extraction for AI agents",
     )
-    parser.add_argument("--version", action="version", version="agent-search-lite 2.0.0")
+    parser.add_argument("--version", action="version", version="agent-search-lite 2.1.0")
     
     sub = parser.add_subparsers(dest="command")
     
@@ -21,7 +21,9 @@ def main():
     p_search = sub.add_parser("search", help="Search the web")
     p_search.add_argument("query", help="Search query")
     p_search.add_argument("-n", "--limit", type=int, default=5, help="Max results")
+    p_search.add_argument("-m", "--mode", choices=list(STRATEGY_MODES.keys()), default="general", help="Strategy mode")
     p_search.add_argument("--no-cache", action="store_true", help="Skip cache")
+    p_search.add_argument("--no-expand", action="store_true", help="Disable query expansion")
     p_search.add_argument("--json", action="store_true", help="Output JSON")
     
     # extract
@@ -32,6 +34,9 @@ def main():
     # doctor
     sub.add_parser("doctor", help="Check backend status")
     
+    # modes
+    sub.add_parser("modes", help="List available strategy modes")
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -41,11 +46,22 @@ def main():
     search = AgentSearchLite()
     
     if args.command == "search":
-        result = search.search(args.query, limit=args.limit, use_cache=not args.no_cache)
+        result = search.search(
+            args.query,
+            limit=args.limit,
+            mode=args.mode,
+            use_cache=not args.no_cache,
+            expand=not args.no_expand,
+        )
         if args.json:
             print(json.dumps(result, indent=2, ensure_ascii=False))
         else:
             if result["success"]:
+                print(f"Mode: {result['data'].get('mode', 'general')}")
+                print(f"Queries: {result['data'].get('queries', [])}")
+                print(f"Sources: {result['data'].get('sources', {})}")
+                print(f"Results: {len(result['data']['web'])}")
+                print()
                 for item in result["data"]["web"]:
                     print(f"{item['position']}. {item['title']}")
                     print(f"   {item['url']}")
@@ -71,6 +87,14 @@ def main():
     
     elif args.command == "doctor":
         print(search.doctor_report())
+    
+    elif args.command == "modes":
+        print("Available Strategy Modes:")
+        print("=" * 45)
+        for mode, config in STRATEGY_MODES.items():
+            print(f"\n  {mode}:")
+            print(f"    {config['description']}")
+            print(f"    Backends: {', '.join(config['backends'])}")
 
 
 if __name__ == "__main__":

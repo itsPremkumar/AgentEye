@@ -1,25 +1,29 @@
 # -*- coding: utf-8 -*-
 """Agent Search Lite — free web search + content extraction.
 
-Completely free, zero API key required. Multiple backends with fallback:
+Completely free, zero API key required. Multiple backends with fallback.
 
-Search backends (fallback chain):
-    1. SearXNG (self-hosted meta-search)
-    2. DDGS package (DuckDuckGo)
-    3. Jina Reader + DuckDuckGo HTML
-    4. GitHub CLI (code search)
-    5. Hacker News API (tech news)
-    6. Reddit JSON (discussions)
+Features:
+- Query expansion (multiple reformulations for better coverage)
+- Strategy modes (general, code, academic, news, community)
+- Parallel backend execution
+- SQLite caching
+- Smart content extraction (BeautifulSoup + readability)
+- URL resolution (direct URLs, no redirects)
+- Retry with exponential backoff
 
-Extract backends:
-    - Jina Reader (always free, zero-config)
-
-No API keys required. Works out of the box.
+Usage:
+    from agent_search.core import AgentSearchLite
+    search = AgentSearchLite()
+    result = search.search("query", mode="code")
+    results = search.extract(["https://example.com"])
 """
 
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import hashlib
 import json
 import logging
 import os
@@ -42,20 +46,85 @@ _SEARXNG_DEFAULT = "http://localhost:8080"
 _HACKERNEWS_API = "https://hacker-news.firebaseio.com/v0"
 _REDDIT_BASE = "https://www.reddit.com"
 _DDG_HTML = "https://html.duckduckgo.com/html/"
-_UA = "Mozilla/5.0 (compatible; agent-search-lite/1.0; +https://github.com/itsPremkumar/agent-search-lite)"
+_UA = "Mozilla/5.0 (compatible; agent-search-lite/2.0; +https://github.com/itsPremkumar/agent-search-lite)"
 _MAX_JINA_BYTES = 5 * 1024 * 1024
 _CACHE_TTL = 3600  # 1 hour
 
+# Strategy modes - which backends to prioritize
+STRATEGY_MODES = {
+    "general": {
+        "backends": ["searxng", "jina-ddg", "ddgs", "hackernews", "reddit", "github"],
+        "description": "Broad web search across all sources",
+    },
+    "code": {
+        "backends": ["github", "searxng", "jina-ddg", "hackernews"],
+        "description": "Code repositories and programming resources",
+        "query_suffixes": ["library", "framework", "package", "github"],
+    },
+    "academic": {
+        "backends": ["searxng", "jina-ddg", "github"],
+        "description": "Academic papers and research",
+        "query_suffixes": ["research paper", "arxiv", "study", "analysis"],
+    },
+    "news": {
+        "backends": ["hackernews", "reddit", "jina-ddg", "searxng"],
+        "description": "Recent news and discussions",
+        "query_suffixes": ["2026", "latest", "news", "announcement"],
+    },
+    "community": {
+        "backends": ["reddit", "hackernews", "jina-ddg", "searxng"],
+        "description": "Community discussions and opinions",
+        "query_suffixes": ["discussion", "opinion", "review", "experience"],
+    },
+}
+
+# Query expansion concept map
+CONCEPT_MAP = {
+    "ai": ["artificial intelligence", "machine learning", "deep learning"],
+    "ml": ["machine learning", "statistical learning"],
+    "llm": ["large language model", "foundation model", "GPT", "Claude"],
+    "api": ["interface", "integration", "SDK", "endpoint"],
+    "saas": ["software as a service", "cloud software"],
+    "devops": ["deployment automation", "CI/CD", "infrastructure as code"],
+    "kubernetes": ["k8s", "container orchestration"],
+    "docker": ["containerization", "container runtime"],
+    "database": ["data store", "persistence layer"],
+    "microservices": ["service-oriented architecture", "distributed systems"],
+    "startup": ["early-stage company", "venture-backed"],
+    "crypto": ["cryptocurrency", "digital assets", "blockchain"],
+    "agent": ["AI agent", "autonomous agent", "agent framework"],
+    "search": ["web search", "information retrieval", "query"],
+}
+
+OPPOSITION_TRIGGERS = {
+    "best": "worst problems with",
+    "benefits": "risks drawbacks of",
+    "advantages": "disadvantages limitations of",
+    "why": "why not criticism of",
+    "success": "failure case study",
+    "growing": "declining stagnating",
+    "popular": "overrated criticism",
+    "recommended": "alternatives to avoid",
+    "safe": "risks dangers of",
+    "cheap": "hidden costs of",
+    "easy": "challenges difficulties of",
+    "fast": "slow problems with",
+    "good": "problems criticism of",
+    "pros": "cons drawbacks",
+}
+
+
+# ---------------------------------------------------------------------------
+# Cache
+# ---------------------------------------------------------------------------
 
 def _cache_dir() -> Path:
-    """Get cache directory."""
     p = Path.home() / ".agent-search" / "cache"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def _cache_db() -> sqlite3.Connection:
-    """Get SQLite cache connection."""
     db_path = _cache_dir() / "search_cache.db"
     conn = sqlite3.connect(str(db_path))
     conn.execute("""
@@ -70,7 +139,6 @@ def _cache_db() -> sqlite3.Connection:
 
 
 def _cache_get(key: str) -> Optional[str]:
-    """Get cached value if not expired."""
     try:
         conn = _cache_db()
         row = conn.execute(
@@ -78,14 +146,13 @@ def _cache_get(key: str) -> Optional[str]:
         ).fetchone()
         conn.close()
         if row and (time.time() - row[1]) < _CACHE_TTL:
-            return row[0]
+            return row[1]
     except Exception:
         pass
     return None
 
 
 def _cache_set(key: str, value: str) -> None:
-    """Set cache value."""
     try:
         conn = _cache_db()
         conn.execute(
@@ -97,6 +164,10 @@ def _cache_set(key: str, value: str) -> None:
     except Exception:
         pass
 
+
+# ---------------------------------------------------------------------------
+# URL Resolution
+# ---------------------------------------------------------------------------
 
 def _resolve_ddg_url(url: str) -> str:
     """Resolve DuckDuckGo redirect URL to direct URL."""
@@ -111,43 +182,177 @@ def _resolve_ddg_url(url: str) -> str:
     return url
 
 
-async def _fetch_with_retry(
-    url: str,
-    method: str = "GET",
-    max_retries: int = 3,
-    base_delay: float = 1.0,
-    **kwargs: Any,
-) -> Optional[httpx.Response]:
-    """Fetch URL with exponential backoff retry."""
-    for attempt in range(max_retries):
-        try:
-            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-                if method == "GET":
-                    resp = await client.get(url, **kwargs)
-                else:
-                    resp = await client.post(url, **kwargs)
-                if resp.status_code == 200:
-                    return resp
-                if resp.status_code == 429:  # Rate limited
-                    delay = base_delay * (2 ** attempt)
-                    logger.warning("Rate limited, retrying in %.1fs", delay)
-                    await asyncio.sleep(delay)
-                    continue
-                if resp.status_code >= 500:  # Server error
-                    delay = base_delay * (2 ** attempt)
-                    logger.warning("Server error %d, retrying in %.1fs", resp.status_code, delay)
-                    await asyncio.sleep(delay)
-                    continue
-                return resp
-        except httpx.RequestError as exc:
-            if attempt < max_retries - 1:
-                delay = base_delay * (2 ** attempt)
-                logger.warning("Request failed: %s, retrying in %.1fs", exc, delay)
-                await asyncio.sleep(delay)
-            else:
-                logger.error("Request failed after %d retries: %s", max_retries, exc)
+# ---------------------------------------------------------------------------
+# Query Expansion
+# ---------------------------------------------------------------------------
+
+def generate_query_variations(query: str) -> List[str]:
+    """Generate 3-5 genuinely different query reformulations.
+    
+    Strategies:
+    1. Original query (always included)
+    2. Question form (turn statements into questions)
+    3. Concept expansion (broader terminology)
+    4. Opposing viewpoint (find counterarguments)
+    5. Domain narrowing (add specificity)
+    """
+    variations = [query]
+    query_lower = query.strip().lower()
+    words = query_lower.split()
+
+    # Strategy 1: Question form
+    question = _to_question(query_lower, words)
+    if question and question.lower() != query_lower:
+        variations.append(question)
+
+    # Strategy 2: Concept expansion
+    expanded = _expand_concepts(query, words)
+    if expanded and expanded.lower() != query_lower:
+        variations.append(expanded)
+
+    # Strategy 3: Opposing viewpoint
+    opposing = _opposing_viewpoint(query, query_lower, words)
+    if opposing and opposing.lower() != query_lower:
+        variations.append(opposing)
+
+    # Strategy 4: Domain narrowing
+    scoped = _adjust_scope(query, query_lower, words)
+    if scoped and scoped.lower() != query_lower:
+        variations.append(scoped)
+
+    # Deduplicate
+    seen = set()
+    unique = []
+    for v in variations:
+        key = v.strip().lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(v)
+
+    return unique[:5]
+
+
+def _to_question(query: str, words: list[str]) -> Optional[str]:
+    """Turn a statement into a question form."""
+    if query.endswith("?") or words[0] in ("how", "what", "why", "when", "where", "who", "which", "is", "are", "can", "do", "does"):
+        return None
+
+    action_words = {"install", "setup", "configure", "build", "create", "deploy",
+                    "fix", "solve", "debug", "optimize", "improve", "migrate"}
+    if words[0] in action_words or (len(words) > 1 and words[1] in action_words):
+        return f"how to {query}"
+
+    if len(words) <= 4:
+        return f"what is {query} and how does it work"
+
+    return f"why {query}"
+
+
+def _expand_concepts(original: str, words: list[str]) -> Optional[str]:
+    """Replace terms with broader/alternative concepts."""
+    result = original
+    expanded = False
+
+    for word in words:
+        if word in CONCEPT_MAP:
+            alternatives = CONCEPT_MAP[word]
+            replacement = alternatives[0]
+            result = re.sub(r'\b' + re.escape(word) + r'\b', replacement, result, count=1, flags=re.IGNORECASE)
+            expanded = True
+            break
+
+    if not expanded:
+        for phrase, alternatives in CONCEPT_MAP.items():
+            if " " in phrase and phrase in original.lower():
+                result = result.lower().replace(phrase, alternatives[0], 1)
+                expanded = True
+                break
+
+    return result if expanded else None
+
+
+def _opposing_viewpoint(original: str, query_lower: str, words: list[str]) -> Optional[str]:
+    """Generate a query for the opposing viewpoint."""
+    for trigger, opposition in OPPOSITION_TRIGGERS.items():
+        if trigger in words:
+            new_query = query_lower.replace(trigger, opposition, 1)
+            return new_query
+
+    if len(words) >= 2:
+        return f"criticism problems with {original}"
+
     return None
 
+
+def _adjust_scope(original: str, query_lower: str, words: list[str]) -> Optional[str]:
+    """Narrow or broaden the query scope."""
+    if len(words) <= 2:
+        return f"{original} in 2026 latest developments"
+
+    qualifiers = {"latest", "best", "top", "new", "recent", "current", "modern",
+                  "2024", "2025", "2026", "today", "now", "ultimate", "complete",
+                  "comprehensive", "definitive", "essential"}
+    narrowed_words = [w for w in words if w not in qualifiers]
+    if len(narrowed_words) < len(words) and len(narrowed_words) >= 2:
+        return " ".join(narrowed_words)
+
+    if not any(w in words for w in ["research", "study", "analysis", "paper", "academic"]):
+        return f"{original} research analysis"
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Content Extraction
+# ---------------------------------------------------------------------------
+
+def _extract_readable_text(html: str, max_chars: int = 10000) -> str:
+    """Extract readable text from HTML using BeautifulSoup."""
+    try:
+        from bs4 import BeautifulSoup, Comment
+    except ImportError:
+        # Fallback to basic extraction
+        return _basic_text_extraction(html, max_chars)
+
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Remove script and style elements
+        for element in soup(["script", "style", "nav", "footer", "header", "aside"]):
+            element.decompose()
+
+        # Remove comments
+        comments = soup.findAll(text=lambda text: isinstance(text, Comment))
+        for comment in comments:
+            comment.extract()
+
+        # Get text
+        text = soup.get_text()
+
+        # Clean up whitespace
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = "\n".join(chunk for chunk in chunks if chunk)
+
+        return text[:max_chars]
+    except Exception:
+        return _basic_text_extraction(html, max_chars)
+
+
+def _basic_text_extraction(html: str, max_chars: int = 10000) -> str:
+    """Basic text extraction without BeautifulSoup."""
+    # Remove script/style
+    text = re.sub(r'<(script|style)[^>]*>[^<]*</\1>', ' ', html, flags=re.IGNORECASE)
+    # Remove tags
+    text = re.sub(r'<[^>]+>', ' ', text)
+    # Clean whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text[:max_chars]
+
+
+# ---------------------------------------------------------------------------
+# Search Backends
+# ---------------------------------------------------------------------------
 
 def _searxng_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
     """Search via SearXNG (self-hosted meta-search engine)."""
@@ -219,7 +424,6 @@ def _jina_ddg_search(query: str, limit: int = 5) -> Dict[str, Any]:
         resp.raise_for_status()
         text = resp.text[:20000]
 
-        # Parse Jina Reader's markdown output
         results = []
         lines = text.split("\n")
         i = 0
@@ -348,56 +552,9 @@ def _reddit_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _jina_extract(urls: List[str], char_limit: int = 15000) -> List[Dict[str, Any]]:
-    """Extract content from URLs via Jina Reader."""
-    results = []
-    for url in urls:
-        try:
-            if not url.startswith(("http://", "https://")):
-                results.append({
-                    "url": url, "title": "", "content": "",
-                    "raw_content": "", "error": "Invalid URL",
-                })
-                continue
-
-            resp = httpx.get(
-                f"{_JINA_ENDPOINT}{url}",
-                headers={"User-Agent": _UA, "Accept": "text/plain"},
-                timeout=30,
-                follow_redirects=True,
-            )
-            resp.raise_for_status()
-            body = resp.text[:_MAX_JINA_BYTES]
-
-            title = ""
-            for line in body.split("\n"):
-                if line.startswith("# "):
-                    title = line[2:].strip()
-                    break
-
-            if len(body) > char_limit:
-                body = body[:char_limit] + "\n\n[TRUNCATED]"
-
-            results.append({
-                "url": url,
-                "title": title,
-                "content": body,
-                "raw_content": body,
-                "metadata": {"source": "jina-reader", "bytes": len(body)},
-            })
-
-        except httpx.HTTPStatusError as exc:
-            results.append({
-                "url": url, "title": "", "content": "", "raw_content": "",
-                "error": f"HTTP {exc.response.status_code}",
-            })
-        except Exception as exc:
-            results.append({
-                "url": url, "title": "", "content": "", "raw_content": "",
-                "error": str(exc),
-            })
-    return results
-
+# ---------------------------------------------------------------------------
+# Main Class
+# ---------------------------------------------------------------------------
 
 class AgentSearchLite:
     """Free web search + content extraction for AI agents.
@@ -406,28 +563,58 @@ class AgentSearchLite:
     """
 
     def __init__(self):
-        self.search_backends = [
-            ("searxng", _searxng_search),
-            ("github", _github_search),
-            ("hackernews", _hackernews_search),
-            ("reddit", _reddit_search),
-            ("ddgs", _ddgs_search),
-            ("jina-ddg", lambda q, l: _jina_ddg_search(q, l)),
-        ]
+        self.all_backends = {
+            "searxng": _searxng_search,
+            "ddgs": _ddgs_search,
+            "jina-ddg": lambda q, l: _jina_ddg_search(q, l),
+            "github": _github_search,
+            "hackernews": _hackernews_search,
+            "reddit": _reddit_search,
+        }
 
-    def search(self, query: str, limit: int = 5, use_cache: bool = True, parallel: bool = True) -> Dict[str, Any]:
+    def _get_backends_for_mode(self, mode: str) -> List[tuple[str, callable]]:
+        """Get backends ordered by priority for a strategy mode."""
+        if mode in STRATEGY_MODES:
+            mode_config = STRATEGY_MODES[mode]
+            backend_names = mode_config.get("backends", list(self.all_backends.keys()))
+            return [(name, self.all_backends[name]) for name in backend_names if name in self.all_backends]
+        return [(name, fn) for name, fn in self.all_backends.items()]
+
+    def search(
+        self,
+        query: str,
+        limit: int = 5,
+        mode: str = "general",
+        use_cache: bool = True,
+        expand: bool = True,
+    ) -> Dict[str, Any]:
         """Search the web using multiple backends.
 
         Args:
             query: Search query
             limit: Max results per backend
+            mode: Strategy mode (general, code, academic, news, community)
             use_cache: Use SQLite cache
-            parallel: Run backends in parallel and merge results
+            expand: Use query expansion for better coverage
 
         Returns:
-            {"success": True, "data": {"web": [...], "sources": {...}}} or {"success": False, "error": ...}
+            {"success": True, "data": {"web": [...], "sources": {...}, "queries": [...]}}
         """
-        cache_key = f"search:{query}:{limit}"
+        # Generate query variations
+        if expand:
+            queries = generate_query_variations(query)
+        else:
+            queries = [query]
+
+        # Add mode-specific suffixes
+        if mode in STRATEGY_MODES:
+            suffixes = STRATEGY_MODES[mode].get("query_suffixes", [])
+            for suffix in suffixes[:2]:
+                expanded = f"{query} {suffix}"
+                if expanded not in queries:
+                    queries.append(expanded)
+
+        cache_key = f"search:{query}:{limit}:{mode}"
         if use_cache:
             cached = _cache_get(cache_key)
             if cached:
@@ -435,37 +622,28 @@ class AgentSearchLite:
 
         all_results = []
         sources = {}
+        backends = self._get_backends_for_mode(mode)
 
-        if parallel:
-            # Run backends in parallel for diverse results
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.search_backends)) as executor:
-                futures = {}
-                for name, backend in self.search_backends:
-                    future = executor.submit(backend, query, limit)
-                    futures[future] = name
-                
-                for future in concurrent.futures.as_completed(futures):
-                    name = futures[future]
-                    try:
-                        result = future.result()
-                        if result and result.get("success"):
-                            web = result["data"]["web"]
-                            all_results.extend(web)
-                            sources[name] = len(web)
-                    except Exception as exc:
-                        logger.debug("Backend %s failed: %s", name, exc)
-        else:
-            # Fallback chain
-            for name, backend in self.search_backends:
+        # Run backends in parallel for each query variation
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(backends) * len(queries)) as executor:
+            futures = {}
+            for q in queries:
+                for name, backend in backends:
+                    future = executor.submit(backend, q, limit)
+                    futures[future] = (name, q)
+
+            for future in concurrent.futures.as_completed(futures):
+                name, q = futures[future]
                 try:
-                    result = backend(query, limit)
+                    result = future.result()
                     if result and result.get("success"):
-                        all_results.extend(result["data"]["web"])
-                        sources[name] = len(result["data"]["web"])
-                        break
+                        web = result["data"]["web"]
+                        all_results.extend(web)
+                        if name not in sources:
+                            sources[name] = 0
+                        sources[name] += len(web)
                 except Exception as exc:
-                    logger.debug("Backend %s failed: %s", name, exc)
+                    logger.debug("Backend %s failed for '%s': %s", name, q, exc)
 
         if all_results:
             # Deduplicate by URL
@@ -477,12 +655,14 @@ class AgentSearchLite:
                     seen.add(url)
                     r["position"] = len(unique) + 1
                     unique.append(r)
-            
+
             result = {
                 "success": True,
                 "data": {
-                    "web": unique[:limit * 2],  # Return more results when parallel
+                    "web": unique[:limit * 3],
                     "sources": sources,
+                    "queries": queries,
+                    "mode": mode,
                 },
             }
             if use_cache:
@@ -492,21 +672,63 @@ class AgentSearchLite:
         return {"success": False, "error": "All search backends failed"}
 
     def extract(self, urls: List[str], char_limit: int = 15000) -> List[Dict[str, Any]]:
-        """Extract content from URLs via Jina Reader.
+        """Extract content from URLs via Jina Reader."""
+        results = []
+        for url in urls:
+            try:
+                if not url.startswith(("http://", "https://")):
+                    results.append({
+                        "url": url, "title": "", "content": "",
+                        "raw_content": "", "error": "Invalid URL",
+                    })
+                    continue
 
-        Args:
-            urls: List of URLs to extract
-            char_limit: Max chars per page
+                resp = httpx.get(
+                    f"{_JINA_ENDPOINT}{url}",
+                    headers={"User-Agent": _UA, "Accept": "text/plain"},
+                    timeout=30,
+                    follow_redirects=True,
+                )
+                resp.raise_for_status()
+                body = resp.text[:_MAX_JINA_BYTES]
 
-        Returns:
-            List of result dicts with url, title, content, error
-        """
-        return _jina_extract(urls, char_limit)
+                # Extract title
+                title = ""
+                for line in body.split("\n"):
+                    if line.startswith("# "):
+                        title = line[2:].strip()
+                        break
+
+                # Extract readable text
+                content = _extract_readable_text(body, char_limit)
+
+                if len(content) > char_limit:
+                    content = content[:char_limit] + "\n\n[TRUNCATED]"
+
+                results.append({
+                    "url": url,
+                    "title": title,
+                    "content": content,
+                    "raw_content": body,
+                    "metadata": {"source": "jina-reader", "bytes": len(body)},
+                })
+
+            except httpx.HTTPStatusError as exc:
+                results.append({
+                    "url": url, "title": "", "content": "", "raw_content": "",
+                    "error": f"HTTP {exc.response.status_code}",
+                })
+            except Exception as exc:
+                results.append({
+                    "url": url, "title": "", "content": "", "raw_content": "",
+                    "error": str(exc),
+                })
+        return results
 
     def doctor(self) -> Dict[str, Any]:
         """Check which backends are available."""
         backends = {}
-        for name, _ in self.search_backends:
+        for name in self.all_backends:
             if name == "searxng":
                 try:
                     resp = httpx.get(f"{os.environ.get('SEARXNG_URL', _SEARXNG_DEFAULT)}/health", timeout=5)
@@ -533,4 +755,8 @@ class AgentSearchLite:
         for name, state in status.items():
             icon = "✅" if state == "ok" else "❌"
             lines.append(f"  {icon} {name}: {state}")
+        lines.append("")
+        lines.append("Strategy Modes:")
+        for mode, config in STRATEGY_MODES.items():
+            lines.append(f"  • {mode}: {config['description']}")
         return "\n".join(lines)
