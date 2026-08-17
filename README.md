@@ -6,7 +6,9 @@ AgentEye provides **completely free** internet data access for AI agents. No API
 
 ## Why AgentEye?
 
-Most web search backends require paid API keys (Firecrawl, Exa, Parallel, Tavily). AgentLens fills the gap with **genuinely free** access from 60+ sources across every category:
+> **Backend reliability:** Most backends (Wikipedia, GitHub, arXiv, PubMed, Hacker News, OpenAlex, and the `ddgs`-powered sources) hit real, stable APIs and work out of the box. A few backends (Google, Bing, Brave, StartPage, Yahoo, Ecosia, DuckDuckGo-HTML) are *scrapers* — they parse search-engine HTML and break whenever that markup changes or a consent/JS page is served. When a scraper returns nothing, it **falls back automatically to `ddgs`** (tagged `"fallback_via": "ddgs"`), so you still get results. Scrapers are best-effort, not a guarantee.
+
+Most web search backends require paid API keys (Firecrawl, Exa, Parallel, Tavily). AgentEye fills the gap with **genuinely free** access from 60+ sources across every category:
 
 | Category | Backends | Count |
 |----------|----------|-------|
