@@ -163,6 +163,22 @@ from agent_search.social_backends import (
     twitter_search,
     youtube_search,
 )
+from agent_search.more_backends import (
+    crates_io_search,
+    go_pkg_search,
+    hacker_news_latest,
+    lobsters_search,
+    mojeek_search,
+    packagist_search,
+    pexels_search,
+    pixabay_search,
+    qwant_search,
+    reddit_search,
+    reddit_subreddit_posts,
+    unsplash_search,
+    yahoo_finance_quote,
+    yahoo_finance_search,
+)
 from agent_search.summarize import summarize_results
 from agent_search.templates import (
     TEMPLATES,
@@ -183,7 +199,7 @@ from agent_search.throttle import (
 
 logger = logging.getLogger(__name__)
 
-__version__ = "4.1.0"
+__version__ = "5.0.0"
 __author__ = "Agent Search Lite Contributors"
 __license__ = "MIT"
 __attribution__ = (
@@ -204,11 +220,11 @@ _DEFAULT_TIMEOUT = 15.0
 
 STRATEGY_MODES = {
     "general": {
-        "backends": ["searxng", "ddgs", "jina-ddg", "hackernews", "github", "wikipedia", "stackoverflow", "lemmy", "mdn", "devto", "youtube", "twitter", "mastodon", "telegram", "osm", "wikidata", "geonames", "dbpedia", "rss", "wayback", "gitlab", "bitbucket", "npm", "pypi", "dockerhub", "pubmed", "semantic_scholar", "crossref", "openalex"],
+        "backends": ["searxng", "ddgs", "jina-ddg", "hackernews", "github", "wikipedia", "stackoverflow", "lemmy", "mdn", "devto", "youtube", "twitter", "mastodon", "telegram", "osm", "wikidata", "geonames", "dbpedia", "rss", "wayback", "gitlab", "bitbucket", "npm", "pypi", "dockerhub", "pubmed", "semantic_scholar", "crossref", "openalex", "datagov", "worldbank", "undata", "weather", "nws", "patents", "google_patents", "jobs", "opencorporates", "tmdb", "lastfm", "openlibrary", "anilist", "mal", "boardgameatlas", "google", "bing", "brave", "duckduckgo", "startpage", "reddit", "yahoo_finance", "unsplash", "pexels", "pixabay", "crates_io", "packagist", "go_pkg", "lobsters", "mojeek", "qwant"],
         "description": "Broad web search across all sources",
     },
     "code": {
-        "backends": ["github", "gitlab", "bitbucket", "stackoverflow", "npm", "pypi", "dockerhub", "searxng", "ddgs", "jina-ddg", "hackernews", "mdn", "devto"],
+        "backends": ["github", "gitlab", "bitbucket", "stackoverflow", "npm", "pypi", "dockerhub", "crates_io", "packagist", "go_pkg", "searxng", "ddgs", "jina-ddg", "hackernews", "mdn", "devto"],
         "description": "Code repositories and programming resources",
         "query_suffixes": ["library", "framework", "package", "github"],
     },
@@ -218,12 +234,12 @@ STRATEGY_MODES = {
         "query_suffixes": ["research paper", "arxiv", "study", "analysis"],
     },
     "news": {
-        "backends": ["hackernews", "ddgs", "jina-ddg", "searxng", "wikipedia", "lemmy", "youtube", "twitter", "mastodon", "rss"],
+        "backends": ["hackernews", "ddgs", "jina-ddg", "searxng", "wikipedia", "lemmy", "youtube", "twitter", "mastodon", "rss", "reddit", "lobsters"],
         "description": "Recent news and discussions",
         "query_suffixes": ["2026", "latest", "news", "announcement"],
     },
     "community": {
-        "backends": ["lemmy", "hackernews", "stackoverflow", "wikipedia", "ddgs", "jina-ddg", "youtube", "twitter", "mastodon", "telegram"],
+        "backends": ["lemmy", "hackernews", "stackoverflow", "wikipedia", "ddgs", "jina-ddg", "youtube", "twitter", "mastodon", "telegram", "reddit", "lobsters"],
         "description": "Community discussions and opinions",
         "query_suffixes": ["discussion", "opinion", "review", "experience"],
     },
@@ -653,6 +669,17 @@ class AgentSearchLite:
             "brave": lambda q, l: brave_search(q, l),
             "duckduckgo": lambda q, l: duckduckgo_search(q, l),
             "startpage": lambda q, l: startpage_search(q, l),
+            "reddit": lambda q, l: reddit_search(q, l),
+            "yahoo_finance": lambda q, l: yahoo_finance_search(q, l),
+            "unsplash": lambda q, l: unsplash_search(q, l),
+            "pexels": lambda q, l: pexels_search(q, l),
+            "pixabay": lambda q, l: pixabay_search(q, l),
+            "crates_io": lambda q, l: crates_io_search(q, l),
+            "packagist": lambda q, l: packagist_search(q, l),
+            "go_pkg": lambda q, l: go_pkg_search(q, l),
+            "lobsters": lambda q, l: lobsters_search(q, l),
+            "mojeek": lambda q, l: mojeek_search(q, l),
+            "qwant": lambda q, l: qwant_search(q, l),
         }
 
     def _get_backends_for_mode(self, mode: str) -> List[tuple[str, callable]]:
