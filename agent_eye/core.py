@@ -182,6 +182,7 @@ from agent_eye.exceptions import (
 )
 from agent_eye.export import export as export_results
 from agent_eye.extractors import smart_extract, score_readability
+from agent_eye.circuit_breaker import circuit_breaker
 from agent_eye.extra_backends import (
     cluster_results,
     devto_search,
@@ -909,10 +910,16 @@ class AgentSearchLite:
         for name, backend in backends:
             rate_limiter.wait_if_needed(name)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(backends) * len(queries), 10)) as executor:
+        # Apply circuit breaker — skip backends that are OPEN
+        available_backends = [
+            (name, backend) for name, backend in backends
+            if circuit_breaker.is_available(name)
+        ]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(available_backends) * len(queries), 10)) as executor:
             futures = {}
             for q in queries:
-                for name, backend in backends:
+                for name, backend in available_backends:
                     future = executor.submit(backend, q, limit)
                     futures[future] = (name, q)
             for future in concurrent.futures.as_completed(futures):
@@ -925,9 +932,11 @@ class AgentSearchLite:
                         if name not in sources:
                             sources[name] = 0
                         sources[name] += len(web)
+                        circuit_breaker.record_success(name)
                 except Exception as exc:
                     logger.debug("Backend %s failed for '%s': %s", name, q, exc)
                     errors[name] = str(exc)
+                    circuit_breaker.record_failure(name)
 
         # Reset language context so it doesn't leak into later calls
         set_search_lang("")
@@ -1255,6 +1264,10 @@ class AgentSearchLite:
             else:
                 backends[name] = "ok"
         return backends
+
+    def circuit_breaker_stats(self) -> Dict[str, Any]:
+        """Return circuit breaker status for all backends."""
+        return circuit_breaker.get_stats()
 
     def doctor_report(self) -> str:
         status = self.doctor()

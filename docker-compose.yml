@@ -1,0 +1,58 @@
+# AgentEye — 100% Free, Zero API Keys Deployment
+# One command: docker compose up -d
+#
+# Services:
+#   agenteye      — Main API + CLI (FastAPI on :8000)
+#   searxng       — Private meta-search (:8080) aggregates Google/Bing/DDG/etc
+#
+# No Redis — SQLite caching is built-in (self-hosted, zero external deps).
+# No API keys — DuckDuckGo + SearXNG + 80+ backends are all free.
+
+version: "3.9"
+
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: agenteye-searxng
+    ports:
+      - "8080:8080"
+    environment:
+      - BASE_URL=http://localhost:8080/
+      - INSTANCE_NAME=AgentEye-SearXNG
+      - LIMITER=false
+      - DEFAULT_LANG=en
+    volumes:
+      - searxng-data:/etc/searxng
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  agenteye:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agenteye
+    ports:
+      - "8000:8000"
+    environment:
+      - SEARXNG_URL=http://searxng:8080
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - agenteye-data:/root/.agent-search
+    depends_on:
+      searxng:
+        condition: service_healthy
+    restart: unless-stopped
+    command: >
+      sh -c "
+      echo 'Waiting for SearXNG...' &&
+      sleep 5 &&
+      agent-eye --host 0.0.0.0 --port 8000
+      "
+
+volumes:
+  searxng-data:
+  agenteye-data:
