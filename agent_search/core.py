@@ -154,6 +154,16 @@ from agent_search.seo_extractor import (
     extract_seo_data,
     extract_twitter_card,
 )
+from agent_search.sitemap_parser import (
+    discover_sitemaps,
+    discover_website_structure,
+    get_all_urls_from_sitemap,
+    get_sitemaps_from_robots,
+    get_sitemap_stats,
+    is_url_allowed,
+    parse_robots_txt,
+    parse_sitemap,
+)
 from agent_search.scheduler import (
     add_scheduled_search,
     get_due_scheduled,
@@ -872,6 +882,26 @@ class AgentSearchLite:
                 results.append({"url": url, "error": str(exc)})
         return results
 
+    def get_robots(self, url: str) -> Dict[str, Any]:
+        """Get and parse robots.txt from a website."""
+        return parse_robots_txt(url)
+
+    def get_sitemaps(self, url: str) -> List[str]:
+        """Discover sitemaps for a website."""
+        return discover_sitemaps(url)
+
+    def get_sitemap_urls(self, url: str, max_urls: int = 1000) -> List[str]:
+        """Get all URLs from a website's sitemaps."""
+        return get_all_urls_from_sitemap(url, max_urls)
+
+    def get_website_structure(self, url: str) -> Dict[str, Any]:
+        """Discover website structure using sitemaps and robots.txt."""
+        return discover_website_structure(url)
+
+    def check_url_allowed(self, url: str, user_agent: str = "*") -> bool:
+        """Check if a URL is allowed by robots.txt."""
+        return is_url_allowed(url, user_agent)
+
     def summarize(self, results: List[Dict[str, Any]], query: str = "", max_sentences: int = 3) -> str:
         return summarize_results(results, query, max_sentences)
 
@@ -1030,6 +1060,28 @@ def main():
     p_extract_seo = sub.add_parser("extract-seo", help="Extract SEO, GEO, AEO, and structured data from URLs")
     p_extract_seo.add_argument("urls", nargs="+", help="URLs to extract SEO data from")
     p_extract_seo.add_argument("--format", choices=["json", "text"], default="text", help="Output format")
+    
+    # robots
+    p_robots = sub.add_parser("robots", help="Get and parse robots.txt from a website")
+    p_robots.add_argument("url", help="Website URL")
+    
+    # sitemaps
+    p_sitemaps = sub.add_parser("sitemaps", help="Discover sitemaps for a website")
+    p_sitemaps.add_argument("url", help="Website URL")
+    
+    # sitemap-urls
+    p_sitemap_urls = sub.add_parser("sitemap-urls", help="Get all URLs from a website's sitemaps")
+    p_sitemap_urls.add_argument("url", help="Website URL")
+    p_sitemap_urls.add_argument("--max", type=int, default=100, help="Maximum URLs to return")
+    
+    # website-structure
+    p_structure = sub.add_parser("website-structure", help="Discover website structure")
+    p_structure.add_argument("url", help="Website URL")
+    
+    # check-url
+    p_check_url = sub.add_parser("check-url", help="Check if URL is allowed by robots.txt")
+    p_check_url.add_argument("url", help="URL to check")
+    p_check_url.add_argument("--agent", default="*", help="User agent to check for")
     
     # doctor
     sub.add_parser("doctor", help="Check backend status")
@@ -1215,6 +1267,26 @@ def main():
                     print(f"Article: {r.get('article', {})}")
                     print(f"Product: {r.get('product', {})}")
                     print("---")
+        
+        elif args.command == "robots":
+            result = search.get_robots(args.url)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        
+        elif args.command == "sitemaps":
+            result = search.get_sitemaps(args.url)
+            print(json.dumps(result, indent=2))
+        
+        elif args.command == "sitemap-urls":
+            result = search.get_sitemap_urls(args.url, args.max)
+            print(json.dumps(result, indent=2))
+        
+        elif args.command == "website-structure":
+            result = search.get_website_structure(args.url)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        
+        elif args.command == "check-url":
+            result = search.check_url_allowed(args.url, args.agent)
+            print(f"{'✅ Allowed' if result else '❌ Blocked'}: {args.url}")
         
         elif args.command == "doctor":
             print(search.doctor_report())
