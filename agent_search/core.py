@@ -73,6 +73,13 @@ from agent_search.bookmarks import (
     remove_bookmark,
     search_bookmarks,
 )
+from agent_search.batch_collector import (
+    crawl_website,
+    discover_feeds,
+    parse_feed,
+    wayback_cdx_search,
+    wayback_latest_snapshot,
+)
 from agent_search.commerce_gov import (
     datagov_search,
     google_patents_search,
@@ -902,6 +909,22 @@ class AgentSearchLite:
         """Check if a URL is allowed by robots.txt."""
         return is_url_allowed(url, user_agent)
 
+    def crawl(self, url: str, max_pages: int = 50) -> Dict[str, Any]:
+        """Crawl a website starting from sitemaps."""
+        return crawl_website(url, max_pages=max_pages)
+
+    def get_feeds(self, url: str) -> List[str]:
+        """Discover RSS/Atom feeds for a website."""
+        return discover_feeds(url)
+
+    def parse_feed(self, feed_url: str) -> Dict[str, Any]:
+        """Parse an RSS/Atom feed."""
+        return parse_feed(feed_url)
+
+    def wayback_history(self, url: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get Wayback Machine history for a URL."""
+        return wayback_cdx_search(url, limit=limit)
+
     def summarize(self, results: List[Dict[str, Any]], query: str = "", max_sentences: int = 3) -> str:
         return summarize_results(results, query, max_sentences)
 
@@ -1082,6 +1105,24 @@ def main():
     p_check_url = sub.add_parser("check-url", help="Check if URL is allowed by robots.txt")
     p_check_url.add_argument("url", help="URL to check")
     p_check_url.add_argument("--agent", default="*", help="User agent to check for")
+    
+    # crawl
+    p_crawl = sub.add_parser("crawl", help="Crawl a website using sitemaps")
+    p_crawl.add_argument("url", help="Website URL")
+    p_crawl.add_argument("--max-pages", type=int, default=50, help="Maximum pages to crawl")
+    
+    # feeds
+    p_feeds = sub.add_parser("feeds", help="Discover RSS/Atom feeds")
+    p_feeds.add_argument("url", help="Website URL")
+    
+    # parse-feed
+    p_parse_feed = sub.add_parser("parse-feed", help="Parse an RSS/Atom feed")
+    p_parse_feed.add_argument("url", help="Feed URL")
+    
+    # wayback
+    p_wayback = sub.add_parser("wayback", help="Get Wayback Machine history")
+    p_wayback.add_argument("url", help="URL to look up")
+    p_wayback.add_argument("--limit", type=int, default=10, help="Maximum results")
     
     # doctor
     sub.add_parser("doctor", help="Check backend status")
@@ -1287,6 +1328,22 @@ def main():
         elif args.command == "check-url":
             result = search.check_url_allowed(args.url, args.agent)
             print(f"{'✅ Allowed' if result else '❌ Blocked'}: {args.url}")
+        
+        elif args.command == "crawl":
+            result = search.crawl(args.url, args.max_pages)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        
+        elif args.command == "feeds":
+            result = search.get_feeds(args.url)
+            print(json.dumps(result, indent=2))
+        
+        elif args.command == "parse-feed":
+            result = search.parse_feed(args.url)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        
+        elif args.command == "wayback":
+            result = search.wayback_history(args.url, args.limit)
+            print(json.dumps(result, indent=2))
         
         elif args.command == "doctor":
             print(search.doctor_report())
