@@ -102,14 +102,15 @@ from agent_eye.dev_backends import (
 from agent_eye.cache import MultiLevelCache, get_cache, cache_key, cached
 from agent_eye.fts_search import SearchIndex, get_index, index_page, search_pages
 from agent_eye.intelligence import (
-    quality_score,
+    canonicalize_url,
+    content_hash,
     rank_results,
-    generate_citation,
-    generate_citations,
-    detect_language,
-    get_wikipedia_domain,
-    get_domain_profile,
-    SUPPORTED_LANGUAGES,
+    get_domain_authority,
+    interpret_freshness,
+    CitationEngine,
+    EvidenceEngine,
+    init_database,
+    DB_SCHEMA,
 )
 from agent_eye.capability_detector import (
     classify_website,
@@ -144,6 +145,20 @@ from agent_eye.extra_apis import (
     usgs_earthquakes,
     usgs_volcanoes,
     wordnet_lookup,
+)
+from agent_eye.intelligence import (
+    canonicalize_url,
+    content_hash,
+    CitationEngine,
+    EvidenceEngine,
+    FailureHandler,
+    DomainIntelligence,
+    interpret_freshness,
+    rank_results,
+    get_domain_authority,
+    calculate_freshness_score,
+    init_database,
+    DB_SCHEMA,
 )
 from agent_eye.document_intel import (
     extract_document,
@@ -933,6 +948,9 @@ class AgentSearchLite:
                 "parsed_query": parsed,
                 "clusters": clusters,
             }
+            
+            # Apply quality ranking
+            result_data["web"] = rank_results(unique[:limit * 3], query)
             
             if token_conscious:
                 result_data["token_formatted"] = format_token_conscious(unique[:limit * 3], max_tokens)
