@@ -99,6 +99,18 @@ from agent_search.dev_backends import (
     npm_search,
     pypi_search,
 )
+from agent_search.cache import MultiLevelCache, get_cache, cache_key, cached
+from agent_search.fts_search import SearchIndex, get_index, index_page, search_pages
+from agent_search.intelligence import (
+    quality_score,
+    rank_results,
+    generate_citation,
+    generate_citations,
+    detect_language,
+    get_wikipedia_domain,
+    get_domain_profile,
+    SUPPORTED_LANGUAGES,
+)
 from agent_search.capability_detector import (
     classify_website,
     detect_capabilities,
@@ -1078,6 +1090,26 @@ class AgentSearchLite:
         """Fetch a page from Common Crawl archive."""
         return fetch_from_common_crawl(url)
 
+    def search_cached(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """Search cached/indexed pages."""
+        return search_pages(query, limit)
+
+    def get_cache_stats(self) -> Dict[str, int]:
+        """Get cache statistics."""
+        return get_cache().stats
+
+    def get_index_stats(self) -> Dict[str, Any]:
+        """Get search index statistics."""
+        return get_index().get_stats()
+
+    def clear_cache(self):
+        """Clear all cache levels."""
+        get_cache().clear()
+    
+    def clear_index(self):
+        """Clear the search index."""
+        get_index().clear()
+
     def summarize(self, results: List[Dict[str, Any]], query: str = "", max_sentences: int = 3) -> str:
         return summarize_results(results, query, max_sentences)
 
@@ -1339,6 +1371,23 @@ def main():
     # fetch-archive
     p_fetch_archive = sub.add_parser("fetch-archive", help="Fetch from Common Crawl")
     p_fetch_archive.add_argument("url", help="URL")
+    
+    # clear-cache
+    sub.add_parser("clear-cache", help="Clear all cache levels")
+    
+    # clear-index
+    sub.add_parser("clear-index", help="Clear the search index")
+    
+    # cache-stats
+    sub.add_parser("cache-stats", help="Show cache statistics")
+    
+    # index-stats
+    sub.add_parser("index-stats", help="Show search index statistics")
+    
+    # search-cached
+    p_search_cached = sub.add_parser("search-cached", help="Search cached/indexed pages")
+    p_search_cached.add_argument("query", help="Search query")
+    p_search_cached.add_argument("-n", "--limit", type=int, default=10)
     
     # doctor
     sub.add_parser("doctor", help="Check backend status")
@@ -1637,6 +1686,24 @@ def main():
         elif args.command == "fetch-archive":
             result = search.fetch_archive(args.url)
             print(json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")
+        
+        elif args.command == "clear-cache":
+            search.clear_cache()
+            print("Cache cleared")
+        
+        elif args.command == "clear-index":
+            search.clear_index()
+            print("Index cleared")
+        
+        elif args.command == "cache-stats":
+            print(json.dumps(search.get_cache_stats(), indent=2))
+        
+        elif args.command == "index-stats":
+            print(json.dumps(search.get_index_stats(), indent=2))
+        
+        elif args.command == "search-cached":
+            result = search.search_cached(args.query, args.limit)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
         
         elif args.command == "doctor":
             print(search.doctor_report())
