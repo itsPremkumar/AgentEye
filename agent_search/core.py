@@ -146,6 +146,14 @@ from agent_search.search_engines import (
     google_search,
     startpage_search,
 )
+from agent_search.seo_extractor import (
+    extract_all_structured_data,
+    extract_json_ld,
+    extract_meta_tags,
+    extract_open_graph,
+    extract_seo_data,
+    extract_twitter_card,
+)
 from agent_search.scheduler import (
     add_scheduled_search,
     get_due_scheduled,
@@ -820,7 +828,7 @@ class AgentSearchLite:
         return {"success": False, "error": "All search backends failed", "errors": errors}
 
     def extract(self, urls: List[str], char_limit: int = 15000, smart: bool = True) -> List[Dict[str, Any]]:
-        """Extract content from URLs via Jina Reader."""
+        """Extract content from URLs via Jina Reader with smart extraction."""
         results = []
         for url in urls:
             try:
@@ -846,6 +854,22 @@ class AgentSearchLite:
                 results.append({"url": url, "title": "", "content": "", "raw_content": "", "error": f"HTTP {exc.response.status_code}"})
             except Exception as exc:
                 results.append({"url": url, "title": "", "content": "", "raw_content": "", "error": str(exc)})
+        return results
+
+    def extract_seo(self, urls: List[str]) -> List[Dict[str, Any]]:
+        """Extract SEO, GEO, AEO, and structured data from URLs."""
+        results = []
+        for url in urls:
+            try:
+                if not url.startswith(("http://", "https://")):
+                    continue
+                resp = httpx.get(url, headers={"User-Agent": ua_rotator.get()}, timeout=30, follow_redirects=True)
+                resp.raise_for_status()
+                body = resp.text[:_MAX_JINA_BYTES]
+                seo_data = extract_all_structured_data(body, url)
+                results.append(seo_data)
+            except Exception as exc:
+                results.append({"url": url, "error": str(exc)})
         return results
 
     def summarize(self, results: List[Dict[str, Any]], query: str = "", max_sentences: int = 3) -> str:
@@ -1002,11 +1026,10 @@ def main():
     p_search.add_argument("--export", choices=["json", "csv", "markdown"], help="Export format")
     p_search.add_argument("--output", help="Output file path")
     
-    # extract
-    p_extract = sub.add_parser("extract", help="Extract content from URLs")
-    p_extract.add_argument("urls", nargs="+", help="URLs to extract")
-    p_extract.add_argument("--char-limit", type=int, default=15000)
-    p_extract.add_argument("--no-smart", action="store_true", help="Disable smart extraction")
+    # extract-seo
+    p_extract_seo = sub.add_parser("extract-seo", help="Extract SEO, GEO, AEO, and structured data from URLs")
+    p_extract_seo.add_argument("urls", nargs="+", help="URLs to extract SEO data from")
+    p_extract_seo.add_argument("--format", choices=["json", "text"], default="text", help="Output format")
     
     # doctor
     sub.add_parser("doctor", help="Check backend status")
@@ -1167,6 +1190,31 @@ def main():
                 else:
                     print(r.get("content", "")[:500])
                 print("---")
+        
+        elif args.command == "extract-seo":
+            results = search.extract_seo(args.urls)
+            for r in results:
+                if args.format == "json":
+                    print(json.dumps(r, indent=2, ensure_ascii=False))
+                else:
+                    print(f"URL: {r.get('url', '')}")
+                    print(f"Title: {r.get('title', '')}")
+                    print(f"Description: {r.get('meta_description', '')}")
+                    print(f"Canonical: {r.get('canonical', '')}")
+                    print(f"Robots: {r.get('robots', '')}")
+                    print(f"Open Graph: {r.get('open_graph', {})}")
+                    print(f"Twitter Card: {r.get('twitter_card', {})}")
+                    print(f"JSON-LD: {r.get('json_ld', [])}")
+                    print(f"Headings: {r.get('headings', {})}")
+                    print(f"Links: {r.get('links', {})}")
+                    print(f"Images: {len(r.get('images', []))}")
+                    print(f"GEO: {r.get('geo_data', {})}")
+                    print(f"Organization: {r.get('organization', {})}")
+                    print(f"Breadcrumbs: {r.get('breadcrumbs', [])}")
+                    print(f"FAQ: {r.get('faq', [])}")
+                    print(f"Article: {r.get('article', {})}")
+                    print(f"Product: {r.get('product', {})}")
+                    print("---")
         
         elif args.command == "doctor":
             print(search.doctor_report())
