@@ -139,6 +139,13 @@ from agent_search.ranking import (
     rank_results,
 )
 from agent_search.retry import retry_sync
+from agent_search.search_engines import (
+    bing_search,
+    brave_search,
+    duckduckgo_search,
+    google_search,
+    startpage_search,
+)
 from agent_search.scheduler import (
     add_scheduled_search,
     get_due_scheduled,
@@ -641,6 +648,11 @@ class AgentSearchLite:
             "anilist": lambda q, l: anilist_search(q, l),
             "mal": lambda q, l: mal_search(q, l),
             "boardgameatlas": lambda q, l: boardgameatlas_search(q, l),
+            "google": lambda q, l: google_search(q, l),
+            "bing": lambda q, l: bing_search(q, l),
+            "brave": lambda q, l: brave_search(q, l),
+            "duckduckgo": lambda q, l: duckduckgo_search(q, l),
+            "startpage": lambda q, l: startpage_search(q, l),
         }
 
     def _get_backends_for_mode(self, mode: str) -> List[tuple[str, callable]]:
