@@ -99,6 +99,23 @@ from agent_search.dev_backends import (
     npm_search,
     pypi_search,
 )
+from agent_search.capability_detector import (
+    classify_website,
+    detect_capabilities,
+    discover_api_endpoints,
+)
+from agent_search.change_detector import (
+    ChangeMonitor,
+    check_availability,
+    monitor_content,
+    monitor_price,
+)
+from agent_search.common_crawl import (
+    analyze_domain,
+    fetch_from_common_crawl,
+    search_common_crawl,
+    search_domain,
+)
 from agent_search.document_intel import (
     extract_document,
     extract_docx,
@@ -1002,6 +1019,34 @@ class AgentSearchLite:
         """Verify a source's reliability."""
         return verify_source(url)
 
+    def detect_capabilities(self, url: str) -> Dict[str, Any]:
+        """Detect what a website supports."""
+        return detect_capabilities(url)
+
+    def classify_website(self, url: str) -> str:
+        """Classify website type."""
+        return classify_website(url)
+
+    def discover_apis(self, url: str) -> List[str]:
+        """Discover API endpoints in page source."""
+        return discover_api_endpoints(url)
+
+    def check_availability(self, url: str) -> Dict[str, Any]:
+        """Check if a website is available."""
+        return check_availability(url)
+
+    def monitor_changes(self, url: str, selector: str = None) -> Dict[str, Any]:
+        """Monitor a URL for changes."""
+        return monitor_content(url, selector)
+
+    def search_archive(self, query: str, limit: int = 10) -> Optional[Dict[str, Any]]:
+        """Search Common Crawl archive."""
+        return search_common_crawl(query, limit)
+
+    def fetch_archive(self, url: str) -> Optional[Dict[str, Any]]:
+        """Fetch a page from Common Crawl archive."""
+        return fetch_from_common_crawl(url)
+
     def summarize(self, results: List[Dict[str, Any]], query: str = "", max_sentences: int = 3) -> str:
         return summarize_results(results, query, max_sentences)
 
@@ -1233,6 +1278,36 @@ def main():
     # verify-source
     p_verify = sub.add_parser("verify-source", help="Verify a source's reliability")
     p_verify.add_argument("url", help="URL to verify")
+    
+    # detect-capabilities
+    p_caps = sub.add_parser("detect-capabilities", help="Detect what a website supports")
+    p_caps.add_argument("url", help="Website URL")
+    
+    # classify-website
+    p_classify = sub.add_parser("classify-website", help="Classify website type")
+    p_classify.add_argument("url", help="Website URL")
+    
+    # discover-apis
+    p_apis = sub.add_parser("discover-apis", help="Discover API endpoints")
+    p_apis.add_argument("url", help="Website URL")
+    
+    # check-availability
+    p_check = sub.add_parser("check-availability", help="Check website availability")
+    p_check.add_argument("url", help="Website URL")
+    
+    # monitor
+    p_monitor = sub.add_parser("monitor", help="Monitor URL for changes")
+    p_monitor.add_argument("url", help="URL to monitor")
+    p_monitor.add_argument("--selector", help="CSS selector")
+    
+    # search-archive
+    p_archive = sub.add_parser("search-archive", help="Search Common Crawl")
+    p_archive.add_argument("query", help="Query")
+    p_archive.add_argument("-n", "--limit", type=int, default=10)
+    
+    # fetch-archive
+    p_fetch_archive = sub.add_parser("fetch-archive", help="Fetch from Common Crawl")
+    p_fetch_archive.add_argument("url", help="URL")
     
     # doctor
     sub.add_parser("doctor", help="Check backend status")
@@ -1503,6 +1578,34 @@ def main():
         elif args.command == "verify-source":
             result = search.verify_source(args.url)
             print(json.dumps(result, indent=2))
+        
+        elif args.command == "detect-capabilities":
+            result = search.detect_capabilities(args.url)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        
+        elif args.command == "classify-website":
+            result = search.classify_website(args.url)
+            print(f"Website type: {result}")
+        
+        elif args.command == "discover-apis":
+            result = search.discover_apis(args.url)
+            print(json.dumps(result, indent=2))
+        
+        elif args.command == "check-availability":
+            result = search.check_availability(args.url)
+            print(json.dumps(result, indent=2))
+        
+        elif args.command == "monitor":
+            result = search.monitor_changes(args.url, args.selector)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        
+        elif args.command == "search-archive":
+            result = search.search_archive(args.query, args.limit)
+            print(json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")
+        
+        elif args.command == "fetch-archive":
+            result = search.fetch_archive(args.url)
+            print(json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")
         
         elif args.command == "doctor":
             print(search.doctor_report())
