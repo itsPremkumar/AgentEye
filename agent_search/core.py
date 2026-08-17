@@ -57,6 +57,12 @@ import httpx
 import yaml
 
 from agent_search.academic import arxiv_search, wikipedia_search
+from agent_search.academic_backends import (
+    crossref_search,
+    openalex_search,
+    pubmed_search,
+    semantic_scholar_search,
+)
 from agent_search.bookmarks import (
     add_bookmark,
     add_to_collection,
@@ -68,6 +74,13 @@ from agent_search.bookmarks import (
     search_bookmarks,
 )
 from agent_search.config import add_to_history, ensure_config, get_analytics, load_history
+from agent_search.dev_backends import (
+    bitbucket_search,
+    dockerhub_search,
+    gitlab_search,
+    npm_search,
+    pypi_search,
+)
 from agent_search.exceptions import (
     AgentSearchError,
     AllBackendsFailedError,
@@ -91,6 +104,14 @@ from agent_search.extra_backends import (
     sort_by_freshness,
     wikipedia_search_multi,
 )
+from agent_search.knowledge_backends import (
+    dbpedia_search,
+    geonames_search,
+    osm_search,
+    rss_search,
+    wayback_search,
+    wikidata_search,
+)
 from agent_search.ranking import (
     cross_verify,
     format_token_conscious,
@@ -110,6 +131,12 @@ from agent_search.scheduler import (
     update_scheduled_run,
 )
 from agent_search.social import lemmy_search, stackoverflow_search
+from agent_search.social_backends import (
+    mastodon_search,
+    telegram_search,
+    twitter_search,
+    youtube_search,
+)
 from agent_search.summarize import summarize_results
 from agent_search.templates import (
     TEMPLATES,
@@ -130,7 +157,7 @@ from agent_search.throttle import (
 
 logger = logging.getLogger(__name__)
 
-__version__ = "3.1.0"
+__version__ = "4.0.0"
 __author__ = "Agent Search Lite Contributors"
 __license__ = "MIT"
 __attribution__ = (
@@ -151,26 +178,26 @@ _DEFAULT_TIMEOUT = 15.0
 
 STRATEGY_MODES = {
     "general": {
-        "backends": ["searxng", "ddgs", "jina-ddg", "hackernews", "github", "wikipedia", "stackoverflow", "lemmy", "mdn", "devto"],
+        "backends": ["searxng", "ddgs", "jina-ddg", "hackernews", "github", "wikipedia", "stackoverflow", "lemmy", "mdn", "devto", "youtube", "twitter", "mastodon", "telegram", "osm", "wikidata", "geonames", "dbpedia", "rss", "wayback", "gitlab", "bitbucket", "npm", "pypi", "dockerhub", "pubmed", "semantic_scholar", "crossref", "openalex"],
         "description": "Broad web search across all sources",
     },
     "code": {
-        "backends": ["github", "stackoverflow", "searxng", "ddgs", "jina-ddg", "hackernews", "mdn", "devto"],
+        "backends": ["github", "gitlab", "bitbucket", "stackoverflow", "npm", "pypi", "dockerhub", "searxng", "ddgs", "jina-ddg", "hackernews", "mdn", "devto"],
         "description": "Code repositories and programming resources",
         "query_suffixes": ["library", "framework", "package", "github"],
     },
     "academic": {
-        "backends": ["arxiv", "wikipedia", "ddgs", "jina-ddg", "github"],
+        "backends": ["arxiv", "pubmed", "semantic_scholar", "crossref", "openalex", "wikipedia", "ddgs", "jina-ddg", "github"],
         "description": "Academic papers and research",
         "query_suffixes": ["research paper", "arxiv", "study", "analysis"],
     },
     "news": {
-        "backends": ["hackernews", "ddgs", "jina-ddg", "searxng", "wikipedia", "lemmy"],
+        "backends": ["hackernews", "ddgs", "jina-ddg", "searxng", "wikipedia", "lemmy", "youtube", "twitter", "mastodon", "rss"],
         "description": "Recent news and discussions",
         "query_suffixes": ["2026", "latest", "news", "announcement"],
     },
     "community": {
-        "backends": ["lemmy", "hackernews", "stackoverflow", "wikipedia", "ddgs", "jina-ddg"],
+        "backends": ["lemmy", "hackernews", "stackoverflow", "wikipedia", "ddgs", "jina-ddg", "youtube", "twitter", "mastodon", "telegram"],
         "description": "Community discussions and opinions",
         "query_suffixes": ["discussion", "opinion", "review", "experience"],
     },
@@ -561,6 +588,25 @@ class AgentSearchLite:
             "lemmy": _lemmy_search_wrapper,
             "mdn": _mdn_search_wrapper,
             "devto": _devto_search_wrapper,
+            "youtube": lambda q, l: youtube_search(q, l),
+            "twitter": lambda q, l: twitter_search(q, l),
+            "mastodon": lambda q, l: mastodon_search(q, l),
+            "telegram": lambda q, l: telegram_search(q, l),
+            "osm": lambda q, l: osm_search(q, l),
+            "wikidata": lambda q, l: wikidata_search(q, l),
+            "geonames": lambda q, l: geonames_search(q, l),
+            "dbpedia": lambda q, l: dbpedia_search(q, l),
+            "rss": lambda q, l: rss_search(q, l),
+            "wayback": lambda q, l: wayback_search(q, l),
+            "gitlab": lambda q, l: gitlab_search(q, l),
+            "bitbucket": lambda q, l: bitbucket_search(q, l),
+            "npm": lambda q, l: npm_search(q, l),
+            "pypi": lambda q, l: pypi_search(q, l),
+            "dockerhub": lambda q, l: dockerhub_search(q, l),
+            "pubmed": lambda q, l: pubmed_search(q, l),
+            "semantic_scholar": lambda q, l: semantic_scholar_search(q, l),
+            "crossref": lambda q, l: crossref_search(q, l),
+            "openalex": lambda q, l: openalex_search(q, l),
         }
 
     def _get_backends_for_mode(self, mode: str) -> List[tuple[str, callable]]:
@@ -859,7 +905,7 @@ def main():
         description="Free web search + content extraction for AI agents",
         epilog="Agent Search Lite v3.1.0 — Based on Agent Reach by Panniantong (MIT)",
     )
-    parser.add_argument("--version", action="version", version="agent-search-lite 3.1.0")
+    parser.add_argument("--version", action="version", version="agent-search-lite 4.0.0")
     
     sub = parser.add_subparsers(dest="command")
     
