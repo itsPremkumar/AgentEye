@@ -1,21 +1,24 @@
-# Agent Search Lite — Completely Free Web Search for AI Agents
+# AgentLens — Complete Internet Data Access for AI Agents
 
-**Zero API keys. Zero cost. Multiple backends with parallel execution.**
+**Zero API keys. Zero cost. 60+ free backends. Full internet data collection.**
 
-Agent Search Lite provides **completely free** web search and content extraction for AI agents. No API keys, no signups, no billing — just works.
+AgentLens provides **completely free** internet data access for AI agents. No API keys, no signups, no billing — just works. Search, extract, crawl, and research the entire public web.
 
-## Why Agent Search Lite?
+## Why AgentLens?
 
-Most web search backends require paid API keys (Firecrawl, Exa, Parallel, Tavily). Agent Search Lite fills the gap with **genuinely free** search from multiple sources:
+Most web search backends require paid API keys (Firecrawl, Exa, Parallel, Tavily). AgentLens fills the gap with **genuinely free** access from 60+ sources across every category:
 
-| Backend | Cost | Type | Quality |
-|---------|------|------|---------|
-| **SearXNG** | Free (self-host) | Meta-search | ⭐⭐⭐⭐⭐ |
-| **GitHub CLI** | Free | Code search | ⭐⭐⭐⭐⭐ |
-| **Hacker News API** | Free | Tech news | ⭐⭐⭐⭐ |
-| **Reddit JSON** | Free | Discussions | ⭐⭐⭐⭐ |
-| **DDGS** | Free | DuckDuckGo | ⭐⭐⭐ |
-| **Jina Reader** | Free | Web extraction | ⭐⭐⭐ |
+| Category | Backends | Count |
+|----------|----------|-------|
+| **Web Search** | Google, Bing, Brave, DuckDuckGo, StartPage, Mojeek, Qwant, SearXNG, DDGS, Jina | 10 |
+| **Social Media** | Reddit, Twitter/X, YouTube, Mastodon, Telegram, Lemmy, Lobsters | 7 |
+| **Academic** | arXiv, PubMed, Semantic Scholar, CrossRef, OpenAlex, Wikipedia | 6 |
+| **Developer** | GitHub, GitLab, BitStackOverflow, npm, PyPI, Docker Hub, crates.io, Packagist, Go pkg | 10 |
+| **Media** | TMDB, Last.fm, OpenLibrary, AniList, MAL, BoardGameAtlas, Unsplash, Pexels, Pixabay | 9 |
+| **Knowledge** | Wikipedia, Wikidata, OpenStreetMap, GeoNames, DBpedia | 5 |
+| **Government** | data.gov, World Bank, UN Data | 3 |
+| **Finance** | Yahoo Finance | 1 |
+| **Other** | Weather, Patents, Jobs, OpenCorporates, RSS, Wayback Machine, MDN, Dev.to, Hacker News | 9 |
 
 ## Features
 
@@ -25,6 +28,16 @@ Most web search backends require paid API keys (Firecrawl, Exa, Parallel, Tavily
 - **URL resolution**: Direct URLs, no redirect links
 - **Retry with backoff**: Handles rate limits gracefully
 - **Zero API keys**: Works out of the box
+- **SEO/GEO/AEO extraction**: Full metadata from any website
+- **Sitemap/Robots.txt parsing**: Discover website structure
+- **Document intelligence**: PDF, DOCX, PPTX, XLSX extraction
+- **Video metadata**: yt-dlp integration for 1000+ video platforms
+- **Image OCR**: Extract text from images
+- **Research mode**: Multi-step research with citations
+- **Source verification**: Check reliability of any URL
+- **Full website crawling**: Crawl any site via sitemaps
+- **RSS/Atom parsing**: Monitor feeds and news
+- **Wayback Machine**: Historical snapshots
 - **Plugin-ready**: Embed as a Hermes Agent plugin
 
 ## Quick Start
@@ -42,6 +55,15 @@ for item in result["data"]["web"]:
 # Extract content from URLs
 results = search.extract(["https://example.com"])
 
+# Extract SEO metadata
+seo = search.extract_seo(["https://github.com"])
+
+# Crawl a website
+crawl = search.crawl("https://example.com", max_pages=50)
+
+# Research a topic
+research = search.research_topic("best Python frameworks", sources=10, depth=2)
+
 # Check backend status
 print(search.doctor_report())
 ```
@@ -52,8 +74,35 @@ print(search.doctor_report())
 # Search
 agent-search-lite search "Python 3.12 release" -n 5
 
-# Extract
+# Extract content
 agent-search-lite extract https://example.com
+
+# Extract SEO metadata
+agent-search-lite extract-seo https://github.com
+
+# Crawl website
+agent-search-lite crawl https://example.com --max-pages 50
+
+# Get robots.txt
+agent-search-lite robots https://github.com
+
+# Discover sitemaps
+agent-search-lite sitemaps https://bbc.com
+
+# Get all URLs from sitemaps
+agent-search-lite sitemap-urls https://bbc.com --max 100
+
+# Parse RSS feed
+agent-search-lite parse-feed https://news.ycombinator.com/rss
+
+# Wayback Machine history
+agent-search-lite wayback https://github.com --limit 10
+
+# Research mode
+agent-search-lite research "best Python frameworks" --sources 10 --depth 2
+
+# Verify source
+agent-search-lite verify-source https://github.com
 
 # Check status
 agent-search-lite doctor
@@ -67,9 +116,21 @@ docker run -d -p 8080:8080 searng/searxng
 export SEARXNG_URL=http://localhost:8080
 ```
 
-### DDGS Package (DuckDuckGo)
+### yt-dlp (Video Intelligence)
 ```bash
-pip install agent-search-lite[ddgs]
+pip install yt-dlp
+```
+
+### Tesseract (Image OCR)
+```bash
+# Windows
+choco install tesseract
+
+# macOS
+brew install tesseract
+
+# Linux
+sudo apt install tesseract-ocr
 ```
 
 ## Architecture
@@ -77,15 +138,31 @@ pip install agent-search-lite[ddgs]
 ```
 Query
   │
-  ├──→ SearXNG (self-hosted)
-  ├──→ GitHub CLI
-  ├──→ Hacker News API
-  ├──→ Reddit JSON
-  ├──→ DDGS (optional)
-  └──→ Jina Reader + DDG HTML (fallback)
+  ├──→ Search Layer (60+ backends)
+  │     ├── Web Search (Google, Bing, Brave, etc.)
+  │     ├── Social Media (Reddit, Twitter, YouTube, etc.)
+  │     ├── Academic (arXiv, PubMed, etc.)
+  │     ├── Developer (GitHub, GitLab, etc.)
+  │     └── Media (TMDB, Last.fm, etc.)
   │
-  ▼
-Deduplicated Results + SQLite Cache
+  ├──→ Extraction Layer
+  │     ├── HTML → Markdown
+  │     ├── SEO Metadata (JSON-LD, OG, Twitter Cards)
+  │     ├── Documents (PDF, DOCX, PPTX, XLSX)
+  │     ├── Images (OCR, metadata)
+  │     └── Video (metadata, subtitles)
+  │
+  ├──→ Crawling Layer
+  │     ├── Sitemap.xml parsing
+  │     ├── Robots.txt parsing
+  │     ├── Recursive crawling
+  │     └── RSS/Atom feeds
+  │
+  └──→ Intelligence Layer
+        ├── Research mode
+        ├── Source verification
+        ├── Citation generation
+        └── Change detection
 ```
 
 ## Backend Status
@@ -93,14 +170,27 @@ Deduplicated Results + SQLite Cache
 Run `agent-search-lite doctor` to see which backends are available:
 
 ```
-Agent Search Lite — Backend Status
+AgentLens — Backend Status
 =============================================
-  ✅ searxng: ok
+  ✅ google: ok
+  ✅ bing: ok
+  ✅ brave: ok
+  ✅ duckduckgo: ok
   ✅ github: ok
   ✅ hackernews: ok
+  ✅ arxiv: ok
+  ✅ pubmed: ok
+  ✅ wikipedia: ok
+  ✅ stackoverflow: ok
   ✅ reddit: ok
-  ✅ ddgs: ok
-  ✅ jina-ddg: ok
+  ✅ youtube: ok
+  ✅ tmdb: ok
+  ✅ lastfm: ok
+  ✅ datagov: ok
+  ✅ worldbank: ok
+  ✅ yahoo_finance: ok
+  ✅ weather: ok
+  ✅ ... (60+ total)
 ```
 
 ## License
@@ -110,3 +200,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ## Credits
 
 Based on [Agent Reach](https://github.com/Panniantong/agent-reach) by Panniantong (MIT licensed).
+Query expansion inspired by [brcrusoe72/agent-search](https://github.com/brcrusoe72/agent-search).
+SSR extraction inspired by [telly6/searchpin](https://github.com/telly6/searchpin).
+Ranking inspired by [drmikecrypto/WebSearchFree](https://github.com/drmikecrypto/WebSearchFree).
