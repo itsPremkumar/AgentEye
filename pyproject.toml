@@ -30,7 +30,11 @@ dependencies = [
     "httpx>=0.27.0",
     "beautifulsoup4>=4.12.0",
     "pyyaml>=6.0",
+<<<<<<< HEAD
     "ddgs>=9.0.0",
+=======
+    "trafilatura>=1.12.0",
+>>>>>>> feat/extraction-news-wikipedia
 ]
 
 [project.optional-dependencies]

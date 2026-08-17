@@ -200,6 +200,92 @@ def duckduckgo_search(query: str, limit: int = 10) -> Optional[Dict[str, Any]]:
     return _ddgs_fallback(query, limit, "duckduckgo")
 
 
+# ---------------------------------------------------------------------------
+# DuckDuckGo News Search (dedicated news endpoint)
+# ---------------------------------------------------------------------------
+
+def duckduckgo_news_search(query: str, limit: int = 10) -> Optional[Dict[str, Any]]:
+    """Search DuckDuckGo's dedicated news endpoint.
+
+    This is a different endpoint from text search — it returns recent
+    headlines with source attribution and publication dates. Falls back
+    to the ddgs library if scraping fails.
+    """
+    try:
+        # Try DuckDuckGo Lite news
+        resp = httpx.get(
+            "https://duckduckgo.com/",
+            params={"q": query, "kl": "us-en", "iar": "news"},
+            headers={"User-Agent": ua_rotator.get()},
+            timeout=15,
+            follow_redirects=True,
+        )
+        resp.raise_for_status()
+        results = _parse_ddg_news_results(resp.text, limit)
+        if results:
+            return {"success": True, "data": {"web": results}}
+    except Exception as exc:
+        logger.debug("DDG news HTML search failed: %s", exc)
+
+    # Fallback to ddgs library
+    return _ddgs_news_fallback(query, limit)
+
+
+def _parse_ddg_news_results(html: str, limit: int) -> List[Dict[str, Any]]:
+    """Parse DuckDuckGo news HTML results."""
+    results = []
+    pattern = re.compile(
+        r'<a[^>]*class="[^\"]*result__a[^\"]*"[^>]*href="([^"]*)"[^>]*>(.*?)</a>.*?<a[^>]*class="[^\"]*result__snippet[^\"]*"[^>]*>(.*?)</a>',
+        re.DOTALL | re.IGNORECASE,
+    )
+    matches = pattern.findall(html)
+    for i, (url, title, snippet) in enumerate(matches[:limit]):
+        title = re.sub(r'<[^>]+>', '', title).strip()
+        snippet = re.sub(r'<[^>]+>', '', snippet).strip()
+        if url and title:
+            results.append({
+                "title": title,
+                "url": url,
+                "description": snippet[:300],
+                "source": "duckduckgo-news",
+                "position": i + 1,
+            })
+    return results
+
+
+def _ddgs_news_fallback(query: str, limit: int) -> Optional[Dict[str, Any]]:
+    """Fallback: use the ddgs library's news() endpoint."""
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        logger.debug("ddgs not installed; skipping news fallback")
+        return None
+    try:
+        results = []
+        with DDGS(timeout=10) as client:
+            for i, hit in enumerate(client.news(query, max_results=limit)):
+                if i >= limit:
+                    break
+                url = str(hit.get("url") or hit.get("href") or "")
+                title = str(hit.get("title", ""))
+                if not url or not title:
+                    continue
+                results.append({
+                    "title": title,
+                    "url": url,
+                    "description": str(hit.get("body", ""))[:300],
+                    "source": "duckduckgo-news",
+                    "position": i + 1,
+                    "date": str(hit.get("date", "")),
+                    "source_name": str(hit.get("source", "")),
+                })
+        if results:
+            return {"success": True, "data": {"web": results}}
+    except Exception as exc:
+        logger.debug("ddgs news fallback failed: %s", exc)
+    return None
+
+
 def _ddg_html_search(query: str, limit: int) -> Optional[Dict[str, Any]]:
     """Search DuckDuckGo via HTML interface."""
     try:

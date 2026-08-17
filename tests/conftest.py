@@ -9,12 +9,10 @@ All network I/O is mocked so tests run without internet:
 """
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List
 from unittest import mock
 
-import httpx
 import pytest
 import respx
 
@@ -57,6 +55,13 @@ class _FakeDDGS:
             for i in range(max_results)
         ]
 
+    def news(self, query: str, max_results: int = 5, **kwargs) -> List[Dict[str, str]]:
+        return [
+            {"title": f"{query} — news {i}", "url": f"https://news.com/{i}",
+             "body": f"News snippet {i}.", "date": "2026-01-15", "source": "Reuters"}
+            for i in range(max_results)
+        ]
+
 
 @pytest.fixture
 def fake_ddgs(monkeypatch):
@@ -81,36 +86,10 @@ def respx_mock():
 
 
 # ---------------------------------------------------------------------------
-# Canned HTTP responses
-# ---------------------------------------------------------------------------
-def html_page(title: str = "Test Page", body: str = "Hello world") -> str:
-    return f"""<!DOCTYPE html><html><head><title>{title}</title></head>
-<body><h1>{title}</h1><p>{body}</p>
-<a href="https://example.com/page2">link</a>
-</body></html>"""
-
-
-def robots_txt(allow: str = "/") -> str:
-    return f"User-agent: *\nDisallow: /admin/\nDisallow: /private/\nAllow: {allow}\n"
-
-
-def sitemap_xml(urls: List[str]) -> str:
-    items = "".join(f"<url><loc>{u}</loc></url>" for u in urls)
-    return f'<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{items}</urlset>'
-
-
-# ---------------------------------------------------------------------------
 # Fresh AgentSearchLite instance
 # ---------------------------------------------------------------------------
 @pytest.fixture
 def agent(tmp_home, fake_ddgs):
     """Return a fresh ``AgentSearchLite`` using an isolated tmp home."""
-    from agent_eye.core import AgentSearchLite
-    return AgentSearchLite()
-
-
-@pytest.fixture
-def agent_nohome(fake_ddgs):
-    """Return an agent without redirecting home (uses real cache, wiped after)."""
     from agent_eye.core import AgentSearchLite
     return AgentSearchLite()

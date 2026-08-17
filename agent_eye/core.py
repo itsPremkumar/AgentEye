@@ -228,6 +228,7 @@ from agent_eye.retry import retry_sync
 from agent_eye.search_engines import (
     bing_search,
     brave_search,
+    duckduckgo_news_search,
     duckduckgo_search,
     google_search,
     startpage_search,
@@ -725,6 +726,10 @@ def _wikipedia_search_wrapper(query: str, limit: int = 5) -> Optional[Dict[str, 
     return wikipedia_search(query, limit)
 
 
+def _duckgo_news_wrapper(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
+    return duckduckgo_news_search(query, limit)
+
+
 def _stackoverflow_search_wrapper(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
     return stackoverflow_search(query, limit)
 
@@ -758,6 +763,7 @@ class AgentSearchLite:
             "hackernews": _hackernews_search,
             "arxiv": _arxiv_search_wrapper,
             "wikipedia": _wikipedia_search_wrapper,
+            "duckduckgo-news": _duckgo_news_wrapper,
             "stackoverflow": _stackoverflow_search_wrapper,
             "lemmy": _lemmy_search_wrapper,
             "mdn": _mdn_search_wrapper,
@@ -988,7 +994,12 @@ class AgentSearchLite:
         respect_robots: bool = True,
         user_agent: str = "*",
     ) -> List[Dict[str, Any]]:
-        """Extract content from URLs via Jina Reader with fallback.
+        """Extract content from URLs via Jina Reader with Trafilatura fallback.
+
+        Extraction chain:
+        1. Jina Reader (r.jina.ai) — best for clean markdown
+        2. Trafilatura (local) — excellent boilerplate removal
+        3. Direct request + smart_extract — last resort
 
         Enforces robots.txt (unless ``respect_robots=False``) and caps response
         size so a single huge page cannot exhaust the host.
@@ -1002,6 +1013,9 @@ class AgentSearchLite:
                 if respect_robots:
                     assert_allowed(url, user_agent)
 
+                body = ""
+                source = "jina-reader"
+
                 # Try Jina Reader first (guarded GET)
                 try:
                     resp = guarded_get(
@@ -1013,13 +1027,35 @@ class AgentSearchLite:
                 except (RobotsDisallowedError, InvalidURLError):
                     raise
                 except Exception:
-                    # Fallback to direct request
-                    resp = guarded_get(url)
-                    resp.raise_for_status()
-                    body = resp.text[:_MAX_JINA_BYTES]
+                    # Fallback 2: Trafilatura (local extraction)
+                    if not body:
+                        try:
+                            import trafilatura
+                            downloaded = trafilatura.fetch_url(url)
+                            if downloaded:
+                                extracted = trafilatura.extract(
+                                    downloaded,
+                                    include_links=True,
+                                    include_tables=True,
+                                    output_format="txt",
+                                    url=url,
+                                )
+                                if extracted:
+                                    body = extracted[:_MAX_JINA_BYTES]
+                                    source = "trafilatura"
+                        except Exception:
+                            pass
+
+                    # Fallback 3: Direct request
+                    if not body:
+                        resp = guarded_get(url)
+                        resp.raise_for_status()
+                        body = resp.text[:_MAX_JINA_BYTES]
+                        source = "direct"
 
                 if smart:
                     extracted = smart_extract(body, url, char_limit)
+                    extracted["metadata"]["extraction_source"] = source
                     results.append(extracted)
                 else:
                     title = ""
@@ -1028,7 +1064,7 @@ class AgentSearchLite:
                             title = line[2:].strip()
                             break
                     content = body[:char_limit]
-                    results.append({"url": url, "title": title, "content": content, "raw_content": body, "metadata": {"source": "jina-reader", "bytes": len(body)}})
+                    results.append({"url": url, "title": title, "content": content, "raw_content": body, "metadata": {"source": source, "bytes": len(body)}})
             except RobotsDisallowedError as exc:
                 results.append({"url": url, "title": "", "content": "", "raw_content": "", "error": str(exc), "robots_disallowed": True})
             except InvalidURLError as exc:
@@ -1104,6 +1140,16 @@ class AgentSearchLite:
     def wayback_history(self, url: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Get Wayback Machine history for a URL."""
         return wayback_cdx_search(url, limit=limit)
+
+    def wikipedia_summary(self, title: str) -> Dict[str, Any]:
+        """Get a concise Wikipedia summary for an entity.
+
+        Uses Wikipedia's REST API for clean, structured summaries.
+        Returns title, description, extract, URL, and thumbnail.
+        """
+        from agent_eye.academic import wikipedia_get_summary
+        result = wikipedia_get_summary(title)
+        return result if result else {"error": f"No Wikipedia summary for '{title}'"}
 
     def extract_document(self, url: str) -> Dict[str, Any]:
         """Extract content from PDF/DOCX/PPTX/XLSX."""
