@@ -1,4 +1,4 @@
-from agent_search.core import AgentSearchLite
+from agent_eye.core import AgentSearchLite
 import time
 
 search = AgentSearchLite()
