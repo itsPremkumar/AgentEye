@@ -17,9 +17,9 @@ def main():
     parser = argparse.ArgumentParser(
         prog="agent-search-lite",
         description="Free web search + content extraction for AI agents",
-        epilog="Agent Search Lite v2.1.0 — Based on Agent Reach by Panniantong (MIT)",
+        epilog="Agent Search Lite v2.2.0 — Based on Agent Reach by Panniantong (MIT)",
     )
-    parser.add_argument("--version", action="version", version="agent-search-lite 2.1.0")
+    parser.add_argument("--version", action="version", version="agent-search-lite 2.2.0")
     
     sub = parser.add_subparsers(dest="command")
     
@@ -31,11 +31,14 @@ def main():
     p_search.add_argument("--no-cache", action="store_true", help="Skip cache")
     p_search.add_argument("--no-expand", action="store_true", help="Disable query expansion")
     p_search.add_argument("--json", action="store_true", help="Output JSON")
+    p_search.add_argument("--token-conscious", action="store_true", help="Format results to minimize token usage")
+    p_search.add_argument("--max-tokens", type=int, default=2000, help="Max tokens for token-conscious formatting")
     
     # extract
     p_extract = sub.add_parser("extract", help="Extract content from URLs")
     p_extract.add_argument("urls", nargs="+", help="URLs to extract")
     p_extract.add_argument("--char-limit", type=int, default=15000)
+    p_extract.add_argument("--no-smart", action="store_true", help="Disable smart extraction")
     
     # doctor
     sub.add_parser("doctor", help="Check backend status")
@@ -59,6 +62,8 @@ def main():
                 mode=args.mode,
                 use_cache=not args.no_cache,
                 expand=not args.no_expand,
+                token_conscious=args.token_conscious,
+                max_tokens=args.max_tokens,
             )
             if args.json:
                 print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -76,7 +81,7 @@ def main():
                         print(f"   {item['url']}")
                         if item.get("description"):
                             print(f"   {item['description'][:100]}")
-                        print(f"   [source: {item.get('source', 'unknown')}]")
+                        print(f"   [source: {item.get('source', 'unknown')} | relevance: {item.get('relevance_score', 0):.2f} | verified: {item.get('verification_score', 0):.2f}]")
                         print()
                 else:
                     print(f"Error: {result.get('error')}", file=sys.stderr)
@@ -87,7 +92,7 @@ def main():
                     sys.exit(1)
         
         elif args.command == "extract":
-            results = search.extract(args.urls, char_limit=args.char_limit)
+            results = search.extract(args.urls, char_limit=args.char_limit, smart=not args.no_smart)
             for r in results:
                 print(f"URL: {r['url']}")
                 print(f"Title: {r.get('title', '(none)')}")

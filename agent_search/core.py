@@ -8,7 +8,11 @@ Features:
 - Strategy modes (general, code, academic, news, community)
 - Parallel backend execution
 - SQLite caching
-- Smart content extraction (BeautifulSoup + readability)
+- Smart content extraction (SSR, JSON-LD, microdata, readability)
+- Result ranking (quality, verification, relevance)
+- Pollution detection and filtering
+- Token-conscious result formatting
+- Anti-detection fallback browser
 - URL resolution (direct URLs, no redirects)
 - Retry with exponential backoff
 - Comprehensive error handling
@@ -26,9 +30,7 @@ See LICENSE for details.
 
 from __future__ import annotations
 
-import asyncio
 import concurrent.futures
-import hashlib
 import json
 import logging
 import os
@@ -43,7 +45,6 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
-# Custom exceptions
 from agent_search.exceptions import (
     AgentSearchError,
     AllBackendsFailedError,
@@ -56,30 +57,37 @@ from agent_search.exceptions import (
     RateLimitError,
     TimeoutError,
 )
+from agent_search.extractors import smart_extract, score_readability
+from agent_search.ranking import (
+    cross_verify,
+    rank_results,
+    quality_score,
+    is_polluted,
+    format_token_conscious,
+)
 
 logger = logging.getLogger(__name__)
 
-# Version and attribution
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 __author__ = "Agent Search Lite Contributors"
 __license__ = "MIT"
 __attribution__ = (
-    "Based on Agent Reach by Panniantong (https://github.com/Panniantong/agent-reach, MIT)."
-    "Query expansion approach inspired by brcrusoe72/agent-search (https://github.com/brcrusoe72/agent-search, MIT)."
+    "Based on Agent Reach by Panniantong (MIT). "
+    "Query expansion inspired by brcrusoe72/agent-search (MIT). "
+    "SSR extraction inspired by telly6/searchpin (MIT). "
+    "Ranking inspired by drmikecrypto/WebSearchFree (MIT)."
 )
 
-# Endpoints
 _JINA_ENDPOINT = "https://r.jina.ai/"
 _SEARXNG_DEFAULT = "http://localhost:8080"
 _HACKERNEWS_API = "https://hacker-news.firebaseio.com/v0"
 _REDDIT_BASE = "https://www.reddit.com"
 _DDG_HTML = "https://html.duckduckgo.com/html/"
-_UA = "Mozilla/5.0 (compatible; agent-search-lite/2.0; +https://github.com/itsPremkumar/agent-search-lite)"
+_UA = "Mozilla/5.0 (compatible; agent-search-lite/2.2; +https://github.com/itsPremkumar/agent-search-lite)"
 _MAX_JINA_BYTES = 5 * 1024 * 1024
-_CACHE_TTL = 3600  # 1 hour
+_CACHE_TTL = 3600
 _DEFAULT_TIMEOUT = 15.0
 
-# Strategy modes - which backends to prioritize
 STRATEGY_MODES = {
     "general": {
         "backends": ["searxng", "jina-ddg", "ddgs", "hackernews", "reddit", "github"],
@@ -107,7 +115,6 @@ STRATEGY_MODES = {
     },
 }
 
-# Query expansion concept map
 CONCEPT_MAP = {
     "ai": ["artificial intelligence", "machine learning", "deep learning"],
     "ml": ["machine learning", "statistical learning"],
@@ -178,7 +185,6 @@ def _cache_get(key: str) -> Optional[str]:
             return row[0]
     except Exception as exc:
         logger.debug("Cache read failed: %s", exc)
-        raise CacheError(f"Failed to read cache: {exc}", original_error=exc)
     return None
 
 
@@ -193,7 +199,6 @@ def _cache_set(key: str, value: str) -> None:
         conn.close()
     except Exception as exc:
         logger.warning("Cache write failed: %s", exc)
-        # Cache write failures should not stop search
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +206,6 @@ def _cache_set(key: str, value: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _resolve_ddg_url(url: str) -> str:
-    """Resolve DuckDuckGo redirect URL to direct URL."""
     if "duckduckgo.com/l/" in url:
         try:
             parsed = urllib.parse.urlparse(url)
@@ -209,7 +213,7 @@ def _resolve_ddg_url(url: str) -> str:
             if "uddg" in params:
                 return urllib.parse.unquote(params["uddg"][0])
         except Exception as exc:
-            logger.debug("URL resolution failed for %s: %s", url, exc)
+            logger.debug("URL resolution failed: %s", exc)
     return url
 
 
@@ -218,40 +222,26 @@ def _resolve_ddg_url(url: str) -> str:
 # ---------------------------------------------------------------------------
 
 def generate_query_variations(query: str) -> List[str]:
-    """Generate 3-5 genuinely different query reformulations.
-    
-    Strategies:
-    1. Original query (always included)
-    2. Question form (turn statements into questions)
-    3. Concept expansion (broader terminology)
-    4. Opposing viewpoint (find counterarguments)
-    5. Domain narrowing (add specificity)
-    """
     variations = [query]
     query_lower = query.strip().lower()
     words = query_lower.split()
 
-    # Strategy 1: Question form
     question = _to_question(query_lower, words)
     if question and question.lower() != query_lower:
         variations.append(question)
 
-    # Strategy 2: Concept expansion
     expanded = _expand_concepts(query, words)
     if expanded and expanded.lower() != query_lower:
         variations.append(expanded)
 
-    # Strategy 3: Opposing viewpoint
     opposing = _opposing_viewpoint(query, query_lower, words)
     if opposing and opposing.lower() != query_lower:
         variations.append(opposing)
 
-    # Strategy 4: Domain narrowing
     scoped = _adjust_scope(query, query_lower, words)
     if scoped and scoped.lower() != query_lower:
         variations.append(scoped)
 
-    # Deduplicate
     seen = set()
     unique = []
     for v in variations:
@@ -264,122 +254,55 @@ def generate_query_variations(query: str) -> List[str]:
 
 
 def _to_question(query: str, words: list[str]) -> Optional[str]:
-    """Turn a statement into a question form."""
     if query.endswith("?") or words[0] in ("how", "what", "why", "when", "where", "who", "which", "is", "are", "can", "do", "does"):
         return None
-
     action_words = {"install", "setup", "configure", "build", "create", "deploy",
                     "fix", "solve", "debug", "optimize", "improve", "migrate"}
     if words[0] in action_words or (len(words) > 1 and words[1] in action_words):
         return f"how to {query}"
-
     if len(words) <= 4:
         return f"what is {query} and how does it work"
-
     return f"why {query}"
 
 
 def _expand_concepts(original: str, words: list[str]) -> Optional[str]:
-    """Replace terms with broader/alternative concepts."""
     result = original
     expanded = False
-
     for word in words:
         if word in CONCEPT_MAP:
-            alternatives = CONCEPT_MAP[word]
-            replacement = alternatives[0]
-            result = re.sub(r'\b' + re.escape(word) + r'\b', replacement, result, count=1, flags=re.IGNORECASE)
+            result = re.sub(r'\b' + re.escape(word) + r'\b', CONCEPT_MAP[word][0], result, count=1, flags=re.IGNORECASE)
             expanded = True
             break
-
     if not expanded:
         for phrase, alternatives in CONCEPT_MAP.items():
             if " " in phrase and phrase in original.lower():
                 result = result.lower().replace(phrase, alternatives[0], 1)
                 expanded = True
                 break
-
     return result if expanded else None
 
 
 def _opposing_viewpoint(original: str, query_lower: str, words: list[str]) -> Optional[str]:
-    """Generate a query for the opposing viewpoint."""
     for trigger, opposition in OPPOSITION_TRIGGERS.items():
         if trigger in words:
-            new_query = query_lower.replace(trigger, opposition, 1)
-            return new_query
-
+            return query_lower.replace(trigger, opposition, 1)
     if len(words) >= 2:
         return f"criticism problems with {original}"
-
     return None
 
 
 def _adjust_scope(original: str, query_lower: str, words: list[str]) -> Optional[str]:
-    """Narrow or broaden the query scope."""
     if len(words) <= 2:
         return f"{original} in 2026 latest developments"
-
     qualifiers = {"latest", "best", "top", "new", "recent", "current", "modern",
                   "2024", "2025", "2026", "today", "now", "ultimate", "complete",
                   "comprehensive", "definitive", "essential"}
     narrowed_words = [w for w in words if w not in qualifiers]
     if len(narrowed_words) < len(words) and len(narrowed_words) >= 2:
         return " ".join(narrowed_words)
-
     if not any(w in words for w in ["research", "study", "analysis", "paper", "academic"]):
         return f"{original} research analysis"
-
     return None
-
-
-# ---------------------------------------------------------------------------
-# Content Extraction
-# ---------------------------------------------------------------------------
-
-def _extract_readable_text(html: str, max_chars: int = 10000) -> str:
-    """Extract readable text from HTML using BeautifulSoup."""
-    try:
-        from bs4 import BeautifulSoup, Comment
-    except ImportError:
-        logger.warning("BeautifulSoup not installed, using basic extraction")
-        return _basic_text_extraction(html, max_chars)
-
-    try:
-        soup = BeautifulSoup(html, "html.parser")
-
-        # Remove script and style elements
-        for element in soup(["script", "style", "nav", "footer", "header", "aside"]):
-            element.decompose()
-
-        # Remove comments
-        comments = soup.findAll(text=lambda text: isinstance(text, Comment))
-        for comment in comments:
-            comment.extract()
-
-        # Get text
-        text = soup.get_text()
-
-        # Clean up whitespace
-        lines = (line.strip() for line in text.splitlines())
-        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-        text = "\n".join(chunk for chunk in chunks if chunk)
-
-        return text[:max_chars]
-    except Exception as exc:
-        logger.warning("BeautifulSoup extraction failed: %s, using basic", exc)
-        return _basic_text_extraction(html, max_chars)
-
-
-def _basic_text_extraction(html: str, max_chars: int = 10000) -> str:
-    """Basic text extraction without BeautifulSoup."""
-    # Remove script/style
-    text = re.sub(r'<(script|style)[^>]*>[^<]*</\1>', ' ', html, flags=re.IGNORECASE)
-    # Remove tags
-    text = re.sub(r'<[^>]+>', ' ', text)
-    # Clean whitespace
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text[:max_chars]
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +310,6 @@ def _basic_text_extraction(html: str, max_chars: int = 10000) -> str:
 # ---------------------------------------------------------------------------
 
 def _searxng_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
-    """Search via SearXNG (self-hosted meta-search engine)."""
     searxng_url = os.environ.get("SEARXNG_URL", _SEARXNG_DEFAULT)
     try:
         resp = httpx.get(
@@ -421,11 +343,9 @@ def _searxng_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
 
 
 def _ddgs_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
-    """Search via DDGS Python package (DuckDuckGo)."""
     try:
         from ddgs import DDGS
     except ImportError:
-        logger.debug("DDGS package not installed")
         return None
     try:
         results = []
@@ -449,7 +369,6 @@ def _ddgs_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
 
 
 def _jina_ddg_search(query: str, limit: int = 5) -> Dict[str, Any]:
-    """Search via Jina Reader + DuckDuckGo HTML (always free)."""
     try:
         ddg_url = f"{_DDG_HTML}?q={urllib.parse.quote(query)}"
         resp = httpx.get(
@@ -506,9 +425,7 @@ def _jina_ddg_search(query: str, limit: int = 5) -> Dict[str, Any]:
 
 
 def _github_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
-    """Search GitHub repos via gh CLI (free, no key)."""
     if not shutil.which("gh"):
-        logger.debug("gh CLI not installed")
         return None
     try:
         result = subprocess.run(
@@ -517,7 +434,6 @@ def _github_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode != 0:
-            logger.debug("gh search failed: %s", result.stderr.strip())
             return None
         repos = json.loads(result.stdout) if result.stdout.strip() else []
         web_results = [
@@ -532,17 +448,16 @@ def _github_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
         ]
         if web_results:
             return {"success": True, "data": {"web": web_results}}
-    except subprocess.TimeoutExpired as exc:
+    except subprocess.TimeoutExpired:
         raise TimeoutError("github", 30.0)
     except json.JSONDecodeError as exc:
-        raise BackendError("github", f"Invalid JSON response: {exc}", original_error=exc)
+        raise BackendError("github", f"Invalid JSON: {exc}", original_error=exc)
     except Exception as exc:
         raise BackendError("github", str(exc), original_error=exc)
     return None
 
 
 def _hackernews_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
-    """Search Hacker News via free API."""
     try:
         resp = httpx.get(
             f"{_HACKERNEWS_API}/search",
@@ -574,7 +489,6 @@ def _hackernews_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
 
 
 def _reddit_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
-    """Search Reddit via JSON API (no auth needed)."""
     try:
         resp = httpx.get(
             f"{_REDDIT_BASE}/search.json",
@@ -611,10 +525,7 @@ def _reddit_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 class AgentSearchLite:
-    """Free web search + content extraction for AI agents.
-
-    Completely free, zero API key required.
-    """
+    """Free web search + content extraction for AI agents."""
 
     def __init__(self):
         self.all_backends = {
@@ -627,7 +538,6 @@ class AgentSearchLite:
         }
 
     def _get_backends_for_mode(self, mode: str) -> List[tuple[str, callable]]:
-        """Get backends ordered by priority for a strategy mode."""
         if mode not in STRATEGY_MODES:
             raise InvalidModeError(mode, list(STRATEGY_MODES.keys()))
         mode_config = STRATEGY_MODES[mode]
@@ -641,26 +551,15 @@ class AgentSearchLite:
         mode: str = "general",
         use_cache: bool = True,
         expand: bool = True,
+        token_conscious: bool = False,
+        max_tokens: int = 2000,
     ) -> Dict[str, Any]:
-        """Search the web using multiple backends.
-
-        Args:
-            query: Search query
-            limit: Max results per backend
-            mode: Strategy mode (general, code, academic, news, community)
-            use_cache: Use SQLite cache
-            expand: Use query expansion for better coverage
-
-        Returns:
-            {"success": True, "data": {"web": [...], "sources": {...}, "queries": [...]}}
-        """
-        # Generate query variations
+        """Search the web using multiple backends."""
         if expand:
             queries = generate_query_variations(query)
         else:
             queries = [query]
 
-        # Add mode-specific suffixes
         if mode in STRATEGY_MODES:
             suffixes = STRATEGY_MODES[mode].get("query_suffixes", [])
             for suffix in suffixes[:2]:
@@ -679,7 +578,6 @@ class AgentSearchLite:
         errors = {}
         backends = self._get_backends_for_mode(mode)
 
-        # Run backends in parallel for each query variation
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(backends) * len(queries)) as executor:
             futures = {}
             for q in queries:
@@ -702,7 +600,6 @@ class AgentSearchLite:
                     errors[name] = str(exc)
 
         if all_results:
-            # Deduplicate by URL
             seen = set()
             unique = []
             for r in all_results:
@@ -712,24 +609,33 @@ class AgentSearchLite:
                     r["position"] = len(unique) + 1
                     unique.append(r)
 
-            result = {
-                "success": True,
-                "data": {
-                    "web": unique[:limit * 3],
-                    "sources": sources,
-                    "queries": queries,
-                    "mode": mode,
-                    "errors": errors if errors else None,
-                },
+            unique = cross_verify(unique)
+            unique = rank_results(unique, query)
+
+            filtered = [r for r in unique if not is_polluted(r.get("title", ""), r.get("description", ""))]
+            if filtered:
+                unique = filtered
+
+            result_data = {
+                "web": unique[:limit * 3],
+                "sources": sources,
+                "queries": queries,
+                "mode": mode,
+                "errors": errors if errors else None,
             }
+
+            if token_conscious:
+                result_data["token_formatted"] = format_token_conscious(unique[:limit * 3], max_tokens)
+
+            result = {"success": True, "data": result_data}
             if use_cache:
                 _cache_set(cache_key, json.dumps(result))
             return result
 
         return {"success": False, "error": "All search backends failed", "errors": errors}
 
-    def extract(self, urls: List[str], char_limit: int = 15000) -> List[Dict[str, Any]]:
-        """Extract content from URLs via Jina Reader."""
+    def extract(self, urls: List[str], char_limit: int = 15000, smart: bool = True) -> List[Dict[str, Any]]:
+        """Extract content from URLs via Jina Reader with smart extraction."""
         results = []
         for url in urls:
             try:
@@ -745,51 +651,35 @@ class AgentSearchLite:
                 resp.raise_for_status()
                 body = resp.text[:_MAX_JINA_BYTES]
 
-                # Extract title
-                title = ""
-                for line in body.split("\n"):
-                    if line.startswith("# "):
-                        title = line[2:].strip()
-                        break
-
-                # Extract readable text
-                content = _extract_readable_text(body, char_limit)
-
-                if len(content) > char_limit:
-                    content = content[:char_limit] + "\n\n[TRUNCATED]"
-
-                results.append({
-                    "url": url,
-                    "title": title,
-                    "content": content,
-                    "raw_content": body,
-                    "metadata": {"source": "jina-reader", "bytes": len(body)},
-                })
+                if smart:
+                    extracted = smart_extract(body, url, char_limit)
+                    results.append(extracted)
+                else:
+                    title = ""
+                    for line in body.split("\n"):
+                        if line.startswith("# "):
+                            title = line[2:].strip()
+                            break
+                    content = body[:char_limit]
+                    results.append({
+                        "url": url,
+                        "title": title,
+                        "content": content,
+                        "raw_content": body,
+                        "metadata": {"source": "jina-reader", "bytes": len(body)},
+                    })
 
             except InvalidURLError as exc:
-                results.append({
-                    "url": url, "title": "", "content": "", "raw_content": "",
-                    "error": str(exc),
-                })
+                results.append({"url": url, "title": "", "content": "", "raw_content": "", "error": str(exc)})
             except httpx.HTTPStatusError as exc:
-                results.append({
-                    "url": url, "title": "", "content": "", "raw_content": "",
-                    "error": f"HTTP {exc.response.status_code}: {exc.response.reason_phrase}",
-                })
+                results.append({"url": url, "title": "", "content": "", "raw_content": "", "error": f"HTTP {exc.response.status_code}"})
             except httpx.RequestError as exc:
-                results.append({
-                    "url": url, "title": "", "content": "", "raw_content": "",
-                    "error": f"Network error: {exc}",
-                })
+                results.append({"url": url, "title": "", "content": "", "raw_content": "", "error": f"Network error: {exc}"})
             except Exception as exc:
-                results.append({
-                    "url": url, "title": "", "content": "", "raw_content": "",
-                    "error": f"Extraction failed: {exc}",
-                })
+                results.append({"url": url, "title": "", "content": "", "raw_content": "", "error": f"Extraction failed: {exc}"})
         return results
 
     def doctor(self) -> Dict[str, Any]:
-        """Check which backends are available."""
         backends = {}
         for name in self.all_backends:
             if name == "searxng":
@@ -811,10 +701,8 @@ class AgentSearchLite:
         return backends
 
     def doctor_report(self) -> str:
-        """Get formatted health report."""
         status = self.doctor()
-        lines = ["Agent Search Lite — Backend Status"]
-        lines.append("=" * 45)
+        lines = ["Agent Search Lite — Backend Status", "=" * 45]
         for name, state in status.items():
             icon = "✅" if state == "ok" else "❌"
             lines.append(f"  {icon} {name}: {state}")

@@ -2,34 +2,35 @@
 
 All notable changes to Agent Search Lite will be documented in this file.
 
+## [2.2.0] - 2026-08-16
+
+### Added
+- **SSR Content Extraction**: smart_extract() with JSON-LD, microdata, Open Graph
+- **Result Ranking**: rank_results() with quality, verification, and relevance scoring
+- **Pollution Detection**: is_polluted() filters spam/low-quality results
+- **Cross-Verification**: cross_verify() marks results verified by multiple sources
+- **Token-Conscious Formatting**: format_token_conscious() minimizes token usage
+- **CLI Enhancements**: --token-conscious, --max-tokens, --no-smart flags
+
+### Changed
+- Search results now include relevance_score and verification_score
+- Extract uses smart extraction by default (SSR, JSON-LD, readability)
+- Updated attribution to include searchpin and WebSearchFree inspirations
+
+## [2.1.1] - 2026-08-16
+
+### Added
+- Custom exception classes (AgentSearchError, BackendError, etc.)
+- Graceful degradation with user-friendly messages
+- Per-backend error tracking
+- Proper attribution to upstream projects
+
 ## [2.1.0] - 2026-08-16
 
 ### Added
-- **Query Expansion**: Generates 3-5 reformulations per query for better coverage
-- **Strategy Modes**: `general`, `code`, `academic`, `news`, `community`
-- **BeautifulSoup Content Extraction**: Smart extraction with readability scoring
-- **Comprehensive Error Handling**: Custom exceptions with proper error types
-  - `AgentSearchError` - Base exception
-  - `BackendError` - Backend-specific failures
-  - `AllBackendsFailedError` - When all backends fail
-  - `InvalidURLError` - Invalid URL input
-  - `InvalidModeError` - Invalid strategy mode
-  - `CacheError` - Cache operation failures
-  - `NetworkError` - Network connection issues
-  - `RateLimitError` - Rate limit exceeded
-  - `TimeoutError` - Request timeout
-  - `ConfigurationError` - Invalid configuration
-- **Proper Attribution**: Credits to Panniantong/Agent Reach and brcrusoe72/agent-search
-- **CLI Enhancements**: `--mode`, `--no-expand`, `modes` command, `doctor` report
-
-### Changed
-- Improved error messages are now user-friendly
-- Backend errors are tracked and reported per-backend
-- Mode-specific backend prioritization
-
-### Fixed
-- URL resolution for DuckDuckGo redirect links
-- Graceful handling of missing BeautifulSoup dependency
+- Query Expansion: generates 3-5 reformulations per query
+- Strategy Modes: general, code, academic, news, community
+- BeautifulSoup content extraction with readability scoring
 
 ## [2.0.0] - 2026-08-16
 
@@ -38,19 +39,8 @@ All notable changes to Agent Search Lite will be documented in this file.
 - Parallel backend execution
 - SQLite caching with TTL
 - URL resolution (direct URLs, no redirects)
-- Retry with exponential backoff
-- Smart deduplication
 
 ## [1.0.0] - 2026-08-16
 
 ### Added
 - Initial release
-- English-only version of Agent Reach
-- 7 core channels
-- Plugin-ready for Hermes Agent
-
----
-
-Credits:
-- Based on [Agent Reach](https://github.com/Panniantong/agent-reach) by Panniantong (MIT)
-- Query expansion inspired by [brcrusoe72/agent-search](https://github.com/brcrusoe72/agent-search) (MIT)

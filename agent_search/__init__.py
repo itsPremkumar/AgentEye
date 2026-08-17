@@ -9,7 +9,7 @@ Based on Agent Reach by Panniantong (MIT licensed).
 See LICENSE for details.
 """
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 __author__ = "Agent Search Lite Contributors"
 __license__ = "MIT"
 
@@ -26,6 +26,14 @@ from agent_search.exceptions import (
     RateLimitError,
     TimeoutError,
 )
+from agent_search.extractors import smart_extract, score_readability
+from agent_search.ranking import (
+    cross_verify,
+    rank_results,
+    quality_score,
+    is_polluted,
+    format_token_conscious,
+)
 
 __all__ = [
     "AgentSearchLite",
@@ -40,4 +48,11 @@ __all__ = [
     "NetworkError",
     "RateLimitError",
     "TimeoutError",
+    "smart_extract",
+    "score_readability",
+    "cross_verify",
+    "rank_results",
+    "quality_score",
+    "is_polluted",
+    "format_token_conscious",
 ]
