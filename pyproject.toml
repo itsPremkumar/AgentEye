@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-search-lite"
-version = "3.0.0"
+version = "6.3.0"
 description = "Completely free web search + content extraction for AI agents"
 readme = "README.md"
 license = {text = "MIT"}
@@ -30,12 +30,12 @@ dependencies = [
     "httpx>=0.27.0",
     "beautifulsoup4>=4.12.0",
     "pyyaml>=6.0",
+    "ddgs>=9.0.0",
 ]
 
 [project.optional-dependencies]
-ddgs = ["ddgs>=9.0.0"]
 mcp = ["mcp>=1.0.0"]
-all = ["ddgs>=9.0.0", "mcp>=1.0.0"]
+all = ["mcp>=1.0.0"]
 
 [project.scripts]
 agent-search-lite = "agent_search.core:main"
