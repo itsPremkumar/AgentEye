@@ -212,6 +212,18 @@ from agent_search.social_backends import (
     twitter_search,
     youtube_search,
 )
+from agent_search.social_tiers import (
+    bluesky_search,
+    bluesky_profile,
+    instagram_public_search,
+    instagram_api_search,
+    linkedin_public_search,
+    linkedin_api_search,
+    mastodon_search as mastodon_search_v2,
+    tiktok_public_search,
+    x_public_search,
+    get_source_tiers,
+)
 from agent_search.more_backends import (
     crates_io_search,
     go_pkg_search,
@@ -683,6 +695,11 @@ class AgentSearchLite:
             "twitter": lambda q, l: twitter_search(q, l),
             "mastodon": lambda q, l: mastodon_search(q, l),
             "telegram": lambda q, l: telegram_search(q, l),
+            "bluesky": lambda q, l: bluesky_search(q, l),
+            "linkedin": lambda q, l: linkedin_public_search(q, l),
+            "instagram": lambda q, l: instagram_public_search(q, l),
+            "tiktok": lambda q, l: tiktok_public_search(q, l),
+            "x": lambda q, l: x_public_search(q, l),
             "osm": lambda q, l: osm_search(q, l),
             "wikidata": lambda q, l: wikidata_search(q, l),
             "geonames": lambda q, l: geonames_search(q, l),
@@ -1179,6 +1196,12 @@ def main():
     p_parse_feed = sub.add_parser("parse-feed", help="Parse an RSS/Atom feed")
     p_parse_feed.add_argument("url", help="Feed URL")
     
+    # social
+    p_social = sub.add_parser("social", help="Search social media platforms")
+    p_social.add_argument("query", help="Search query")
+    p_social.add_argument("--platform", choices=["bluesky", "mastodon", "linkedin", "instagram", "tiktok", "x"], default="bluesky", help="Social platform")
+    p_social.add_argument("-n", "--limit", type=int, default=5, help="Max results")
+    
     # wayback
     p_wayback = sub.add_parser("wayback", help="Get Wayback Machine history")
     p_wayback.add_argument("url", help="URL to look up")
@@ -1427,6 +1450,31 @@ def main():
         elif args.command == "parse-feed":
             result = search.parse_feed(args.url)
             print(json.dumps(result, indent=2, ensure_ascii=False))
+        
+        elif args.command == "social":
+            platform = args.platform
+            query = args.query
+            limit = args.limit
+            
+            if platform == "bluesky":
+                result = bluesky_search(query, limit)
+            elif platform == "mastodon":
+                result = mastodon_search(query, limit)
+            elif platform == "linkedin":
+                result = linkedin_public_search(query, limit)
+            elif platform == "instagram":
+                result = instagram_public_search(query, limit)
+            elif platform == "tiktok":
+                result = tiktok_public_search(query, limit)
+            elif platform == "x":
+                result = x_public_search(query, limit)
+            else:
+                result = None
+            
+            if result:
+                print(json.dumps(result, indent=2, ensure_ascii=False))
+            else:
+                print("No results")
         
         elif args.command == "wayback":
             result = search.wayback_history(args.url, args.limit)
