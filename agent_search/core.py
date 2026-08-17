@@ -99,6 +99,13 @@ from agent_search.dev_backends import (
     npm_search,
     pypi_search,
 )
+from agent_search.document_intel import (
+    extract_document,
+    extract_docx,
+    extract_pdf,
+    extract_pptx,
+    extract_xlsx,
+)
 from agent_search.exceptions import (
     AgentSearchError,
     AllBackendsFailedError,
@@ -145,6 +152,16 @@ from agent_search.ranking import (
     quality_score,
     rank_results,
 )
+from agent_search.image_intel import (
+    analyze_image,
+    extract_image_metadata,
+    extract_text_from_image,
+)
+from agent_search.research_engine import (
+    expand_query,
+    research,
+    verify_source,
+)
 from agent_search.retry import retry_sync
 from agent_search.search_engines import (
     bing_search,
@@ -180,6 +197,13 @@ from agent_search.scheduler import (
     remove_scheduled_search,
     trigger_webhook,
     update_scheduled_run,
+)
+from agent_search.video_intel import (
+    detect_video_platform,
+    extract_video_metadata,
+    extract_video_subtitles,
+    extract_video_thumbnail,
+    youtube_search,
 )
 from agent_search.social import lemmy_search, stackoverflow_search
 from agent_search.social_backends import (
@@ -845,15 +869,24 @@ class AgentSearchLite:
         return {"success": False, "error": "All search backends failed", "errors": errors}
 
     def extract(self, urls: List[str], char_limit: int = 15000, smart: bool = True) -> List[Dict[str, Any]]:
-        """Extract content from URLs via Jina Reader with smart extraction."""
+        """Extract content from URLs via Jina Reader with fallback."""
         results = []
         for url in urls:
             try:
                 if not url.startswith(("http://", "https://")):
                     raise InvalidURLError(url)
-                resp = httpx.get(f"{_JINA_ENDPOINT}{url}", headers={"User-Agent": ua_rotator.get(), "Accept": "text/plain"}, timeout=30, follow_redirects=True)
-                resp.raise_for_status()
-                body = resp.text[:_MAX_JINA_BYTES]
+                
+                # Try Jina Reader first
+                try:
+                    resp = httpx.get(f"{_JINA_ENDPOINT}{url}", headers={"User-Agent": _UA, "Accept": "text/plain"}, timeout=30, follow_redirects=True)
+                    resp.raise_for_status()
+                    body = resp.text[:_MAX_JINA_BYTES]
+                except Exception:
+                    # Fallback to direct request
+                    resp = httpx.get(url, headers={"User-Agent": ua_rotator.get()}, timeout=30, follow_redirects=True)
+                    resp.raise_for_status()
+                    body = resp.text[:_MAX_JINA_BYTES]
+                
                 if smart:
                     extracted = smart_extract(body, url, char_limit)
                     results.append(extracted)
@@ -924,6 +957,33 @@ class AgentSearchLite:
     def wayback_history(self, url: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Get Wayback Machine history for a URL."""
         return wayback_cdx_search(url, limit=limit)
+
+    def extract_document(self, url: str) -> Dict[str, Any]:
+        """Extract content from PDF/DOCX/PPTX/XLSX."""
+        return extract_document(url)
+
+    def extract_video(self, url: str) -> Dict[str, Any]:
+        """Extract video metadata."""
+        return extract_video_metadata(url)
+
+    def search_youtube(self, query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
+        """Search YouTube."""
+        return youtube_search(query, limit)
+
+    def extract_image(self, url: str) -> Dict[str, Any]:
+        """Extract image metadata and OCR text."""
+        metadata = extract_image_metadata(url)
+        ocr = extract_text_from_image(url)
+        analysis = analyze_image(url)
+        return {**metadata, **ocr, **analysis}
+
+    def research_topic(self, question: str, sources: int = 10, depth: int = 2) -> Dict[str, Any]:
+        """Conduct research on a topic."""
+        return research(question, sources, depth)
+
+    def verify_source(self, url: str) -> Dict[str, Any]:
+        """Verify a source's reliability."""
+        return verify_source(url)
 
     def summarize(self, results: List[Dict[str, Any]], query: str = "", max_sentences: int = 3) -> str:
         return summarize_results(results, query, max_sentences)
@@ -1123,6 +1183,33 @@ def main():
     p_wayback = sub.add_parser("wayback", help="Get Wayback Machine history")
     p_wayback.add_argument("url", help="URL to look up")
     p_wayback.add_argument("--limit", type=int, default=10, help="Maximum results")
+    
+    # extract-document
+    p_extract_doc = sub.add_parser("extract-document", help="Extract content from PDF/DOCX/PPTX/XLSX")
+    p_extract_doc.add_argument("url", help="Document URL")
+    
+    # extract-video
+    p_extract_video = sub.add_parser("extract-video", help="Extract video metadata")
+    p_extract_video.add_argument("url", help="Video URL")
+    
+    # search-youtube
+    p_youtube = sub.add_parser("search-youtube", help="Search YouTube")
+    p_youtube.add_argument("query", help="Search query")
+    p_youtube.add_argument("-n", "--limit", type=int, default=5, help="Max results")
+    
+    # extract-image
+    p_extract_image = sub.add_parser("extract-image", help="Extract image metadata and OCR")
+    p_extract_image.add_argument("url", help="Image URL")
+    
+    # research
+    p_research = sub.add_parser("research", help="Conduct research on a topic")
+    p_research.add_argument("question", help="Research question")
+    p_research.add_argument("--sources", type=int, default=10, help="Number of sources")
+    p_research.add_argument("--depth", type=int, default=2, help="Research depth")
+    
+    # verify-source
+    p_verify = sub.add_parser("verify-source", help="Verify a source's reliability")
+    p_verify.add_argument("url", help="URL to verify")
     
     # doctor
     sub.add_parser("doctor", help="Check backend status")
@@ -1343,6 +1430,30 @@ def main():
         
         elif args.command == "wayback":
             result = search.wayback_history(args.url, args.limit)
+            print(json.dumps(result, indent=2))
+        
+        elif args.command == "extract-document":
+            result = search.extract_document(args.url)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        
+        elif args.command == "extract-video":
+            result = search.extract_video(args.url)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        
+        elif args.command == "search-youtube":
+            result = search.search_youtube(args.query, args.limit)
+            print(json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")
+        
+        elif args.command == "extract-image":
+            result = search.extract_image(args.url)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        
+        elif args.command == "research":
+            result = search.research_topic(args.question, args.sources, args.depth)
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        
+        elif args.command == "verify-source":
+            result = search.verify_source(args.url)
             print(json.dumps(result, indent=2))
         
         elif args.command == "doctor":
