@@ -12,7 +12,9 @@ Features:
 - Result ranking (quality, verification, relevance)
 - Pollution detection and filtering
 - Token-conscious result formatting
-- Anti-detection fallback browser
+- Site-specific search operators
+- Date filtering (before:/after:)
+- Multiple fallback backends (Jina+DDG, DDGS, SearXNG)
 - URL resolution (direct URLs, no redirects)
 - Retry with exponential backoff
 - Comprehensive error handling
@@ -68,7 +70,7 @@ from agent_search.ranking import (
 
 logger = logging.getLogger(__name__)
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 __author__ = "Agent Search Lite Contributors"
 __license__ = "MIT"
 __attribution__ = (
@@ -80,73 +82,59 @@ __attribution__ = (
 
 _JINA_ENDPOINT = "https://r.jina.ai/"
 _SEARXNG_DEFAULT = "http://localhost:8080"
-_HACKERNEWS_API = "https://hacker-news.firebaseio.com/v0"
+_HACKERNEWS_API = "https://hn.algolia.com/api/v1"
 _REDDIT_BASE = "https://www.reddit.com"
 _DDG_HTML = "https://html.duckduckgo.com/html/"
-_UA = "Mozilla/5.0 (compatible; agent-search-lite/2.2; +https://github.com/itsPremkumar/agent-search-lite)"
+_UA = "Mozilla/5.0 (compatible; agent-search-lite/2.3; +https://github.com/itsPremkumar/agent-search-lite)"
 _MAX_JINA_BYTES = 5 * 1024 * 1024
 _CACHE_TTL = 3600
 _DEFAULT_TIMEOUT = 15.0
 
 STRATEGY_MODES = {
     "general": {
-        "backends": ["searxng", "jina-ddg", "ddgs", "hackernews", "reddit", "github"],
+        "backends": ["searxng", "ddgs", "jina-ddg", "hackernews", "github"],
         "description": "Broad web search across all sources",
     },
     "code": {
-        "backends": ["github", "searxng", "jina-ddg", "hackernews"],
+        "backends": ["github", "searxng", "ddgs", "jina-ddg", "hackernews"],
         "description": "Code repositories and programming resources",
         "query_suffixes": ["library", "framework", "package", "github"],
     },
     "academic": {
-        "backends": ["searxng", "jina-ddg", "github"],
+        "backends": ["searxng", "ddgs", "jina-ddg", "github"],
         "description": "Academic papers and research",
         "query_suffixes": ["research paper", "arxiv", "study", "analysis"],
     },
     "news": {
-        "backends": ["hackernews", "reddit", "jina-ddg", "searxng"],
+        "backends": ["hackernews", "ddgs", "jina-ddg", "searxng"],
         "description": "Recent news and discussions",
         "query_suffixes": ["2026", "latest", "news", "announcement"],
     },
     "community": {
-        "backends": ["reddit", "hackernews", "jina-ddg", "searxng"],
+        "backends": ["hackernews", "ddgs", "jina-ddg", "searxng"],
         "description": "Community discussions and opinions",
         "query_suffixes": ["discussion", "opinion", "review", "experience"],
     },
 }
 
-CONCEPT_MAP = {
-    "ai": ["artificial intelligence", "machine learning", "deep learning"],
-    "ml": ["machine learning", "statistical learning"],
-    "llm": ["large language model", "foundation model", "GPT", "Claude"],
-    "api": ["interface", "integration", "SDK", "endpoint"],
-    "saas": ["software as a service", "cloud software"],
-    "devops": ["deployment automation", "CI/CD", "infrastructure as code"],
-    "kubernetes": ["k8s", "container orchestration"],
-    "docker": ["containerization", "container runtime"],
-    "database": ["data store", "persistence layer"],
-    "microservices": ["service-oriented architecture", "distributed systems"],
-    "startup": ["early-stage company", "venture-backed"],
-    "crypto": ["cryptocurrency", "digital assets", "blockchain"],
-    "agent": ["AI agent", "autonomous agent", "agent framework"],
-    "search": ["web search", "information retrieval", "query"],
+# Site-specific search operators
+SITE_OPERATORS = {
+    "github": "site:github.com",
+    "stackoverflow": "site:stackoverflow.com",
+    "wikipedia": "site:wikipedia.org",
+    "reddit": "site:reddit.com",
+    "hackernews": "site:news.ycombinator.com",
+    "medium": "site:medium.com",
+    "devto": "site:dev.to",
+    "arxiv": "site:arxiv.org",
 }
 
-OPPOSITION_TRIGGERS = {
-    "best": "worst problems with",
-    "benefits": "risks drawbacks of",
-    "advantages": "disadvantages limitations of",
-    "why": "why not criticism of",
-    "success": "failure case study",
-    "growing": "declining stagnating",
-    "popular": "overrated criticism",
-    "recommended": "alternatives to avoid",
-    "safe": "risks dangers of",
-    "cheap": "hidden costs of",
-    "easy": "challenges difficulties of",
-    "fast": "slow problems with",
-    "good": "problems criticism of",
-    "pros": "cons drawbacks",
+# Date filter patterns
+DATE_PATTERNS = {
+    "after:": "after",
+    "before:": "before",
+    "since:": "after",
+    "until:": "before",
 }
 
 
@@ -218,8 +206,85 @@ def _resolve_ddg_url(url: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Query Parsing (site: and date filters)
+# ---------------------------------------------------------------------------
+
+def parse_query(query: str) -> Dict[str, Any]:
+    """Parse query for site: and date filters.
+    
+    Returns:
+        {
+            "clean_query": str,
+            "site": str or None,
+            "date_after": str or None,
+            "date_before": str or None,
+        }
+    """
+    result = {
+        "clean_query": query,
+        "site": None,
+        "date_after": None,
+        "date_before": None,
+    }
+    
+    # Extract site: operator
+    site_match = re.search(r'site:(\S+)', query)
+    if site_match:
+        result["site"] = site_match.group(1)
+        result["clean_query"] = re.sub(r'site:\S+', '', query).strip()
+    
+    # Extract date filters
+    for pattern, date_type in DATE_PATTERNS.items():
+        date_match = re.search(rf'{pattern}(\d{{4}}-\d{{2}}-\d{{2}})', query)
+        if date_match:
+            date_str = date_match.group(1)
+            if date_type == "after":
+                result["date_after"] = date_str
+            else:
+                result["date_before"] = date_str
+            result["clean_query"] = re.sub(rf'{pattern}\d{{4}}-\d{{2}}-\d{{2}}', '', result["clean_query"]).strip()
+    
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Query Expansion
 # ---------------------------------------------------------------------------
+
+CONCEPT_MAP = {
+    "ai": ["artificial intelligence", "machine learning", "deep learning"],
+    "ml": ["machine learning", "statistical learning"],
+    "llm": ["large language model", "foundation model", "GPT", "Claude"],
+    "api": ["interface", "integration", "SDK", "endpoint"],
+    "saas": ["software as a service", "cloud software"],
+    "devops": ["deployment automation", "CI/CD", "infrastructure as code"],
+    "kubernetes": ["k8s", "container orchestration"],
+    "docker": ["containerization", "container runtime"],
+    "database": ["data store", "persistence layer"],
+    "microservices": ["service-oriented architecture", "distributed systems"],
+    "startup": ["early-stage company", "venture-backed"],
+    "crypto": ["cryptocurrency", "digital assets", "blockchain"],
+    "agent": ["AI agent", "autonomous agent", "agent framework"],
+    "search": ["web search", "information retrieval", "query"],
+}
+
+OPPOSITION_TRIGGERS = {
+    "best": "worst problems with",
+    "benefits": "risks drawbacks of",
+    "advantages": "disadvantages limitations of",
+    "why": "why not criticism of",
+    "success": "failure case study",
+    "growing": "declining stagnating",
+    "popular": "overrated criticism",
+    "recommended": "alternatives to avoid",
+    "safe": "risks dangers of",
+    "cheap": "hidden costs of",
+    "easy": "challenges difficulties of",
+    "fast": "slow problems with",
+    "good": "problems criticism of",
+    "pros": "cons drawbacks",
+}
+
 
 def generate_query_variations(query: str) -> List[str]:
     variations = [query]
@@ -310,6 +375,7 @@ def _adjust_scope(original: str, query_lower: str, words: list[str]) -> Optional
 # ---------------------------------------------------------------------------
 
 def _searxng_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
+    """Search via SearXNG (self-hosted meta-search engine)."""
     searxng_url = os.environ.get("SEARXNG_URL", _SEARXNG_DEFAULT)
     try:
         resp = httpx.get(
@@ -343,9 +409,11 @@ def _searxng_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
 
 
 def _ddgs_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
+    """Search via DDGS Python package (DuckDuckGo) - pure Python fallback."""
     try:
         from ddgs import DDGS
     except ImportError:
+        logger.debug("DDGS package not installed")
         return None
     try:
         results = []
@@ -369,6 +437,7 @@ def _ddgs_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
 
 
 def _jina_ddg_search(query: str, limit: int = 5) -> Dict[str, Any]:
+    """Search via Jina Reader + DuckDuckGo HTML (always free)."""
     try:
         ddg_url = f"{_DDG_HTML}?q={urllib.parse.quote(query)}"
         resp = httpx.get(
@@ -395,14 +464,20 @@ def _jina_ddg_search(query: str, limit: int = 5) -> Dict[str, Any]:
                 if title.startswith("Image"):
                     i += 1
                     continue
-                snippet = ""
+                
+                # Better snippet parsing: collect multiple lines
+                snippet_lines = []
                 j = i + 1
-                while j < len(lines):
+                while j < len(lines) and len(snippet_lines) < 3:
                     next_line = lines[j].strip()
-                    if next_line and not next_line.startswith("[") and not next_line.startswith("!"):
-                        snippet = next_line
+                    if next_line and not next_line.startswith("[") and not next_line.startswith("!") and not next_line.startswith("##"):
+                        snippet_lines.append(next_line)
+                    elif next_line.startswith("##"):
                         break
                     j += 1
+                
+                snippet = " ".join(snippet_lines) if snippet_lines else ""
+                
                 results.append({
                     "title": title,
                     "url": url,
@@ -425,6 +500,7 @@ def _jina_ddg_search(query: str, limit: int = 5) -> Dict[str, Any]:
 
 
 def _github_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
+    """Search GitHub repos via gh CLI (free, no key)."""
     if not shutil.which("gh"):
         return None
     try:
@@ -458,10 +534,11 @@ def _github_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
 
 
 def _hackernews_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
+    """Search Hacker News via Algolia API."""
     try:
         resp = httpx.get(
             f"{_HACKERNEWS_API}/search",
-            params={"query": query, "tags": "story"},
+            params={"query": query, "tags": "story", "hitsPerPage": limit},
             timeout=_DEFAULT_TIMEOUT,
         )
         resp.raise_for_status()
@@ -488,38 +565,6 @@ def _hackernews_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _reddit_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
-    try:
-        resp = httpx.get(
-            f"{_REDDIT_BASE}/search.json",
-            params={"q": query, "limit": limit, "sort": "relevance"},
-            headers={"User-Agent": _UA},
-            timeout=_DEFAULT_TIMEOUT,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        posts = data.get("data", {}).get("children", [])[:limit]
-        web_results = [
-            {
-                "title": p.get("data", {}).get("title", ""),
-                "url": f"https://reddit.com{p.get('data', {}).get('permalink', '')}",
-                "description": f"⭐ {p.get('data', {}).get('score', 0)} | 💬 {p.get('data', {}).get('num_comments', 0)} | r/{p.get('data', {}).get('subreddit', '')}",
-                "position": i + 1,
-                "source": "reddit",
-            }
-            for i, p in enumerate(posts)
-        ]
-        if web_results:
-            return {"success": True, "data": {"web": web_results}}
-    except httpx.HTTPStatusError as exc:
-        raise BackendError("reddit", f"HTTP {exc.response.status_code}", original_error=exc)
-    except httpx.RequestError as exc:
-        raise NetworkError("reddit", original_error=exc)
-    except Exception as exc:
-        raise BackendError("reddit", str(exc), original_error=exc)
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Main Class
 # ---------------------------------------------------------------------------
@@ -534,7 +579,6 @@ class AgentSearchLite:
             "jina-ddg": lambda q, l: _jina_ddg_search(q, l),
             "github": _github_search,
             "hackernews": _hackernews_search,
-            "reddit": _reddit_search,
         }
 
     def _get_backends_for_mode(self, mode: str) -> List[tuple[str, callable]]:
@@ -553,21 +597,41 @@ class AgentSearchLite:
         expand: bool = True,
         token_conscious: bool = False,
         max_tokens: int = 2000,
+        site: str = None,
+        date_after: str = None,
+        date_before: str = None,
     ) -> Dict[str, Any]:
         """Search the web using multiple backends."""
+        # Parse query for operators
+        parsed = parse_query(query)
+        clean_query = parsed["clean_query"]
+        
+        # Override with explicit parameters
+        if site:
+            parsed["site"] = site
+        if date_after:
+            parsed["date_after"] = date_after
+        if date_before:
+            parsed["date_before"] = date_before
+        
+        # Build enhanced query with site operator
+        base_query = clean_query
+        if parsed["site"]:
+            base_query = f"{clean_query} site:{parsed['site']}"
+        
         if expand:
-            queries = generate_query_variations(query)
+            queries = generate_query_variations(base_query)
         else:
-            queries = [query]
+            queries = [base_query]
 
         if mode in STRATEGY_MODES:
             suffixes = STRATEGY_MODES[mode].get("query_suffixes", [])
             for suffix in suffixes[:2]:
-                expanded = f"{query} {suffix}"
+                expanded = f"{base_query} {suffix}"
                 if expanded not in queries:
                     queries.append(expanded)
 
-        cache_key = f"search:{query}:{limit}:{mode}"
+        cache_key = f"search:{query}:{limit}:{mode}:{parsed['site']}:{parsed['date_after']}:{parsed['date_before']}"
         if use_cache:
             cached = _cache_get(cache_key)
             if cached:
@@ -610,7 +674,7 @@ class AgentSearchLite:
                     unique.append(r)
 
             unique = cross_verify(unique)
-            unique = rank_results(unique, query)
+            unique = rank_results(unique, clean_query)
 
             filtered = [r for r in unique if not is_polluted(r.get("title", ""), r.get("description", ""))]
             if filtered:
@@ -622,6 +686,7 @@ class AgentSearchLite:
                 "queries": queries,
                 "mode": mode,
                 "errors": errors if errors else None,
+                "parsed_query": parsed,
             }
 
             if token_conscious:
@@ -711,7 +776,11 @@ class AgentSearchLite:
         for mode, config in STRATEGY_MODES.items():
             lines.append(f"  • {mode}: {config['description']}")
         lines.append("")
+        lines.append("Query Operators:")
+        lines.append("  site:example.com — Search specific site")
+        lines.append("  after:2024-01-01 — Results after date")
+        lines.append("  before:2025-01-01 — Results before date")
+        lines.append("")
         lines.append(f"Version: {__version__}")
         lines.append(f"License: {__license__}")
-        lines.append(f"Attribution: {__attribution__}")
         return "\n".join(lines)

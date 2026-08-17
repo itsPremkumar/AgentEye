@@ -17,9 +17,9 @@ def main():
     parser = argparse.ArgumentParser(
         prog="agent-search-lite",
         description="Free web search + content extraction for AI agents",
-        epilog="Agent Search Lite v2.2.0 — Based on Agent Reach by Panniantong (MIT)",
+        epilog="Agent Search Lite v2.3.0 — Based on Agent Reach by Panniantong (MIT)",
     )
-    parser.add_argument("--version", action="version", version="agent-search-lite 2.2.0")
+    parser.add_argument("--version", action="version", version="agent-search-lite 2.3.0")
     
     sub = parser.add_subparsers(dest="command")
     
@@ -33,6 +33,9 @@ def main():
     p_search.add_argument("--json", action="store_true", help="Output JSON")
     p_search.add_argument("--token-conscious", action="store_true", help="Format results to minimize token usage")
     p_search.add_argument("--max-tokens", type=int, default=2000, help="Max tokens for token-conscious formatting")
+    p_search.add_argument("--site", help="Search specific site (e.g., github.com, wikipedia.org)")
+    p_search.add_argument("--after", help="Results after date (YYYY-MM-DD)")
+    p_search.add_argument("--before", help="Results before date (YYYY-MM-DD)")
     
     # extract
     p_extract = sub.add_parser("extract", help="Extract content from URLs")
@@ -64,6 +67,9 @@ def main():
                 expand=not args.no_expand,
                 token_conscious=args.token_conscious,
                 max_tokens=args.max_tokens,
+                site=args.site,
+                date_after=args.after,
+                date_before=args.before,
             )
             if args.json:
                 print(json.dumps(result, indent=2, ensure_ascii=False))
@@ -81,7 +87,7 @@ def main():
                         print(f"   {item['url']}")
                         if item.get("description"):
                             print(f"   {item['description'][:100]}")
-                        print(f"   [source: {item.get('source', 'unknown')} | relevance: {item.get('relevance_score', 0):.2f} | verified: {item.get('verification_score', 0):.2f}]")
+                        print(f"   [source: {item.get('source', 'unknown')} | relevance: {item.get('relevance_score', 0):.2f}]")
                         print()
                 else:
                     print(f"Error: {result.get('error')}", file=sys.stderr)

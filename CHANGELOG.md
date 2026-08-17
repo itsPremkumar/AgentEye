@@ -1,46 +1,54 @@
 # Changelog
 
-All notable changes to Agent Search Lite will be documented in this file.
+## [2.3.0] - 2026-08-16
+
+### Fixed
+- **DDGS backend now works**: Added `ddgs` package as pure Python DDG fallback
+- **Better snippet parsing**: Multi-line snippet extraction from Jina results
+- **Site-specific search**: `site:` operator to narrow to GitHub, Wikipedia, etc.
+- **Date filters**: `after:YYYY-MM-DD` and `before:YYYY-MM-DD` support
+- **HN API fixed**: Switched from broken Firebase to Algolia API
+- **Removed broken Reddit**: 403 issue, will be replaced later
+
+### Added
+- **SearXNG Docker script**: One-command setup for self-hosted meta-search
+- **CLI flags**: `--site`, `--after`, `--before` for advanced queries
+- **Doctor report**: Now shows query operators and version
+
+### Changed
+- Updated strategy modes to remove broken Reddit backend
+- Improved error handling throughout
 
 ## [2.2.0] - 2026-08-16
 
 ### Added
-- **SSR Content Extraction**: smart_extract() with JSON-LD, microdata, Open Graph
-- **Result Ranking**: rank_results() with quality, verification, and relevance scoring
-- **Pollution Detection**: is_polluted() filters spam/low-quality results
-- **Cross-Verification**: cross_verify() marks results verified by multiple sources
-- **Token-Conscious Formatting**: format_token_conscious() minimizes token usage
-- **CLI Enhancements**: --token-conscious, --max-tokens, --no-smart flags
-
-### Changed
-- Search results now include relevance_score and verification_score
-- Extract uses smart extraction by default (SSR, JSON-LD, readability)
-- Updated attribution to include searchpin and WebSearchFree inspirations
+- SSR Content Extraction: JSON-LD, microdata, Open Graph
+- Result Ranking: relevance_score, verification_score
+- Pollution Detection: automatic spam filtering
+- Cross-Verification: mark results verified by multiple sources
+- Token-Conscious Formatting: minimize LLM token usage
 
 ## [2.1.1] - 2026-08-16
 
 ### Added
-- Custom exception classes (AgentSearchError, BackendError, etc.)
+- Custom exception classes
 - Graceful degradation with user-friendly messages
-- Per-backend error tracking
 - Proper attribution to upstream projects
 
 ## [2.1.0] - 2026-08-16
 
 ### Added
-- Query Expansion: generates 3-5 reformulations per query
+- Query Expansion: 3-5 reformulations per query
 - Strategy Modes: general, code, academic, news, community
-- BeautifulSoup content extraction with readability scoring
+- BeautifulSoup content extraction
 
 ## [2.0.0] - 2026-08-16
 
 ### Added
-- 6 Free Backends: SearXNG, GitHub, Hacker News, Reddit, DDGS, Jina+DDG
-- Parallel backend execution
-- SQLite caching with TTL
-- URL resolution (direct URLs, no redirects)
+- 6 Free Backends with parallel execution
+- SQLite caching
+- URL resolution
 
 ## [1.0.0] - 2026-08-16
 
-### Added
 - Initial release
