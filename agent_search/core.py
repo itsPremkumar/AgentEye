@@ -116,6 +116,23 @@ from agent_search.common_crawl import (
     search_common_crawl,
     search_domain,
 )
+from agent_search.extra_apis import (
+    cocoapods_search,
+    conceptnet_lookup,
+    datamuse_rhymes,
+    datamuse_synonyms,
+    datamuse_words,
+    maven_search,
+    nasa_apod,
+    nasa_mars_photos,
+    nasa_neo_feed,
+    nuget_search,
+    pubdev_search,
+    rubygems_search,
+    usgs_earthquakes,
+    usgs_volcanoes,
+    wordnet_lookup,
+)
 from agent_search.document_intel import (
     extract_document,
     extract_docx,
@@ -763,6 +780,20 @@ class AgentSearchLite:
             "lobsters": lambda q, l: lobsters_search(q, l),
             "mojeek": lambda q, l: mojeek_search(q, l),
             "qwant": lambda q, l: qwant_search(q, l),
+            "rubygems": lambda q, l: rubygems_search(q, l),
+            "nuget": lambda q, l: nuget_search(q, l),
+            "maven": lambda q, l: maven_search(q, l),
+            "cocoapods": lambda q, l: cocoapods_search(q, l),
+            "pubdev": lambda q, l: pubdev_search(q, l),
+            "nasa_apod": lambda q, l: nasa_apod(),
+            "nasa_mars": lambda q, l: nasa_mars_photos(),
+            "usgs_earthquakes": lambda q, l: usgs_earthquakes(limit=l),
+            "usgs_volcanoes": lambda q, l: usgs_volcanoes(limit=l),
+            "datamuse": lambda q, l: datamuse_words(q, l),
+            "datamuse_rhyme": lambda q, l: datamuse_rhymes(q, l),
+            "datamuse_synonym": lambda q, l: datamuse_synonyms(q, l),
+            "conceptnet": lambda q, l: conceptnet_lookup(q, limit=l),
+            "wordnet": lambda q, l: wordnet_lookup(q),
         }
 
     def _get_backends_for_mode(self, mode: str) -> List[tuple[str, callable]]:
