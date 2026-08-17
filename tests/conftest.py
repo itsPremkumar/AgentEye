@@ -93,3 +93,10 @@ def agent(tmp_home, fake_ddgs):
     """Return a fresh ``AgentSearchLite`` using an isolated tmp home."""
     from agent_eye.core import AgentSearchLite
     return AgentSearchLite()
+
+
+@pytest.fixture
+def agent_nohome(fake_ddgs):
+    """Return a fresh ``AgentSearchLite`` without redirecting home."""
+    from agent_eye.core import AgentSearchLite
+    return AgentSearchLite()
