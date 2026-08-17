@@ -57,6 +57,16 @@ import httpx
 import yaml
 
 from agent_search.academic import arxiv_search, wikipedia_search
+from agent_search.bookmarks import (
+    add_bookmark,
+    add_to_collection,
+    create_collection,
+    get_collection,
+    load_bookmarks,
+    load_collections,
+    remove_bookmark,
+    search_bookmarks,
+)
 from agent_search.config import add_to_history, ensure_config, get_analytics, load_history
 from agent_search.exceptions import (
     AgentSearchError,
@@ -89,8 +99,26 @@ from agent_search.ranking import (
     rank_results,
 )
 from agent_search.retry import retry_sync
+from agent_search.scheduler import (
+    add_scheduled_search,
+    get_due_scheduled,
+    load_scheduled,
+    load_webhooks,
+    register_webhook,
+    remove_scheduled_search,
+    trigger_webhook,
+    update_scheduled_run,
+)
 from agent_search.social import lemmy_search, stackoverflow_search
 from agent_search.summarize import summarize_results
+from agent_search.templates import (
+    TEMPLATES,
+    apply_template,
+    compare_results,
+    get_template,
+    get_template_names,
+    search_content,
+)
 from agent_search.throttle import (
     RateLimiter,
     ReliabilityScorer,
@@ -882,6 +910,73 @@ def main():
     sub.add_parser("interactive", help="Start interactive search mode")
     sub.add_parser("repl", help="Alias for interactive mode")
     
+    # bookmarks
+    p_bookmark = sub.add_parser("bookmark", help="Bookmark a result")
+    p_bookmark.add_argument("url", help="URL to bookmark")
+    p_bookmark.add_argument("--title", help="Title for bookmark")
+    p_bookmark.add_argument("--description", help="Description")
+    p_bookmark.add_argument("--tags", help="Comma-separated tags")
+    p_bookmark.add_argument("--query", help="Original search query")
+    
+    p_bookmarks = sub.add_parser("bookmarks", help="List/search bookmarks")
+    p_bookmarks.add_argument("--query", help="Search bookmarks")
+    p_bookmarks.add_argument("--tags", help="Filter by tags (comma-separated)")
+    
+    p_unbookmark = sub.add_parser("unbookmark", help="Remove a bookmark")
+    p_unbookmark.add_argument("url", help="URL to remove")
+    
+    # collections
+    p_collection = sub.add_parser("collection", help="Create a collection")
+    p_collection.add_argument("name", help="Collection name")
+    
+    p_add_to_collection = sub.add_parser("add-to-collection", help="Add URL to collection")
+    p_add_to_collection.add_argument("collection", help="Collection name")
+    p_add_to_collection.add_argument("url", help="URL to add")
+    
+    p_collections = sub.add_parser("collections", help="List collections")
+    p_collections.add_argument("--name", help="Show specific collection")
+    
+    # templates
+    p_template = sub.add_parser("template", help="Apply a search template")
+    p_template.add_argument("name", help="Template name")
+    p_template.add_argument("--topic", required=True, help="Topic for template")
+    p_template.add_argument("--topic2", help="Second topic (for comparison)")
+    p_template.add_argument("--lang", help="Language (for code search)")
+    
+    sub.add_parser("templates", help="List available templates")
+    
+    # compare
+    p_compare = sub.add_parser("compare", help="Compare two search queries")
+    p_compare.add_argument("query1", help="First query")
+    p_compare.add_argument("query2", help="Second query")
+    p_compare.add_argument("-n", "--limit", type=int, default=5, help="Max results per query")
+    
+    # content search
+    p_content = sub.add_parser("content", help="Search within extracted content")
+    p_content.add_argument("url", help="URL to search within")
+    p_content.add_argument("term", help="Search term")
+    p_content.add_argument("--context", type=int, default=100, help="Context characters")
+    
+    # schedule
+    p_schedule = sub.add_parser("schedule", help="Add scheduled search")
+    p_schedule.add_argument("query", help="Search query")
+    p_schedule.add_argument("interval", type=int, help="Interval in minutes")
+    p_schedule.add_argument("-m", "--mode", default="general", help="Search mode")
+    p_schedule.add_argument("-n", "--limit", type=int, default=5, help="Max results")
+    
+    p_scheduled = sub.add_parser("scheduled", help="List scheduled searches")
+    
+    p_remove_schedule = sub.add_parser("unschedule", help="Remove scheduled search")
+    p_remove_schedule.add_argument("id", help="Scheduled search ID")
+    
+    # webhooks
+    p_webhook = sub.add_parser("webhook", help="Register webhook")
+    p_webhook.add_argument("url", help="Webhook URL")
+    p_webhook.add_argument("--events", help="Comma-separated events")
+    p_webhook.add_argument("--secret", help="Webhook secret")
+    
+    sub.add_parser("webhooks", help="List webhooks")
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -989,6 +1084,175 @@ def main():
         
         elif args.command in ("interactive", "repl"):
             interactive_mode()
+        
+        elif args.command == "bookmark":
+            tags = args.tags.split(",") if args.tags else []
+            add_bookmark(
+                url=args.url,
+                title=args.title or "",
+                description=args.description or "",
+                tags=tags,
+                query=args.query or "",
+            )
+            print(f"✅ Bookmarked: {args.url[:60]}")
+        
+        elif args.command == "bookmarks":
+            tags = args.tags.split(",") if args.tags else None
+            bookmarks = search_bookmarks(query=args.query or "", tags=tags)
+            print("Bookmarks:")
+            print("=" * 50)
+            for b in bookmarks:
+                print(f"  {b['title'][:50]}")
+                print(f"    {b['url'][:60]}")
+                if b.get("tags"):
+                    print(f"    Tags: {', '.join(b['tags'])}")
+                print()
+        
+        elif args.command == "unbookmark":
+            if remove_bookmark(args.url):
+                print(f"✅ Removed bookmark: {args.url[:60]}")
+            else:
+                print(f"❌ Bookmark not found: {args.url[:60]}")
+        
+        elif args.command == "collection":
+            if create_collection(args.name):
+                print(f"✅ Collection created: {args.name}")
+            else:
+                print(f"❌ Collection already exists: {args.name}")
+        
+        elif args.command == "add-to-collection":
+            if add_to_collection(args.collection, args.url):
+                print(f"✅ Added to collection: {args.collection}")
+            else:
+                print(f"❌ Collection not found: {args.collection}")
+        
+        elif args.command == "collections":
+            collections = load_collections()
+            if args.name:
+                urls = get_collection(args.name)
+                if urls:
+                    print(f"Collection: {args.name}")
+                    for url in urls:
+                        print(f"  {url}")
+                else:
+                    print(f"Collection not found: {args.name}")
+            else:
+                print("Collections:")
+                for name, urls in collections.items():
+                    print(f"  {name} ({len(urls)} items)")
+        
+        elif args.command == "templates":
+            print("Available Templates:")
+            print("=" * 50)
+            for name in get_template_names():
+                t = get_template(name)
+                print(f"  {name}: {t['description']}")
+                print(f"    Query: {t['query']}")
+                print()
+        
+        elif args.command == "template":
+            kwargs = {"topic": args.topic}
+            if args.topic2:
+                kwargs["topic2"] = args.topic2
+            if args.lang:
+                kwargs["lang"] = args.lang
+            params = apply_template(args.name, **kwargs)
+            if params:
+                print(f"Template: {args.name}")
+                print(f"  Query: {params['query']}")
+                print(f"  Mode: {params['mode']}")
+                if params.get('site'):
+                    print(f"  Site: {params['site']}")
+                # Execute the search
+                result = search.search(
+                    params['query'],
+                    limit=params.get('limit', 5),
+                    mode=params['mode'],
+                    site=params.get('site'),
+                )
+                if result['success']:
+                    for item in result['data']['web'][:5]:
+                        print(f"  [{item['source']}] {item['title'][:50]}")
+            else:
+                print(f"Template not found: {args.name}")
+        
+        elif args.command == "compare":
+            result1 = search.search(args.query1, limit=args.limit)
+            result2 = search.search(args.query2, limit=args.limit)
+            
+            comparison = compare_results(
+                result1.get('data', {}).get('web', []),
+                result2.get('data', {}).get('web', []),
+            )
+            
+            print(f"Comparing: '{args.query1}' vs '{args.query2}'")
+            print("=" * 50)
+            print(f"Similarity: {comparison['similarity']:.2f}")
+            print(f"Common URLs: {len(comparison['common_urls'])}")
+            print(f"Only first: {len(comparison['only_first'])}")
+            print(f"Only second: {len(comparison['only_second'])}")
+            
+            if comparison['common_urls']:
+                print("\nCommon results:")
+                for url in comparison['common_urls'][:5]:
+                    print(f"  - {url}")
+        
+        elif args.command == "content":
+            result = search.extract([args.url])
+            if result and result[0].get('content'):
+                matches = search_content(result[0]['content'], args.term, args.context)
+                print(f"Found {len(matches)} matches in {args.url}")
+                for m in matches:
+                    print(f"\n  Position {m['position']}:")
+                    print(f"  {m['snippet'][:200]}")
+            else:
+                print(f"Could not extract content from {args.url}")
+        
+        elif args.command == "schedule":
+            entry = add_scheduled_search(
+                query=args.query,
+                interval_minutes=args.interval,
+                mode=args.mode,
+                limit=args.limit,
+            )
+            print(f"✅ Scheduled search added: {entry['id']}")
+            print(f"  Query: {args.query}")
+            print(f"  Interval: {args.interval} minutes")
+        
+        elif args.command == "scheduled":
+            scheduled = load_scheduled()
+            print("Scheduled Searches:")
+            print("=" * 50)
+            for s in scheduled:
+                print(f"  ID: {s['id']}")
+                print(f"    Query: {s['query']}")
+                print(f"    Interval: {s['interval_minutes']} minutes")
+                print(f"    Enabled: {s['enabled']}")
+                print()
+        
+        elif args.command == "unschedule":
+            if remove_scheduled_search(args.id):
+                print(f"✅ Removed scheduled search: {args.id}")
+            else:
+                print(f"❌ Scheduled search not found: {args.id}")
+        
+        elif args.command == "webhook":
+            events = args.events.split(",") if args.events else None
+            webhook = register_webhook(args.url, events, args.secret or "")
+            print(f"✅ Webhook registered: {webhook['id']}")
+            print(f"  URL: {webhook['url']}")
+            print(f"  Events: {webhook['events']}")
+        
+        elif args.command == "webhooks":
+            webhooks = load_webhooks()
+            print("Registered Webhooks:")
+            print("=" * 50)
+            for wh in webhooks:
+                print(f"  ID: {wh['id']}")
+                print(f"    URL: {wh['url']}")
+                print(f"    Events: {wh['events']}")
+                print(f"    Enabled: {wh['enabled']}")
+                print()
     
     except InvalidModeError as exc:
         print(f"Error: {exc}", file=sys.stderr)
