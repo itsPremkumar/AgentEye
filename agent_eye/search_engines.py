@@ -95,8 +95,6 @@ def _ddgs_fallback(query: str, limit: int, source: str) -> Optional[Dict[str, An
     return None
 
 
-
-
 # ---------------------------------------------------------------------------
 # Google Search Scraper (OpenSERP pattern)
 # ---------------------------------------------------------------------------
@@ -130,7 +128,8 @@ def google_search(query: str, limit: int = 10) -> Optional[Dict[str, Any]]:
     except Exception as exc:
         logger.debug("Google search failed: %s", exc)
 
-    return None
+    # Markup changed / consent page / blocked -> fall back to ddgs
+    return _ddgs_fallback(query, limit, "google")
 
 
 def _parse_google_results(html: str, limit: int) -> List[Dict[str, Any]]:
@@ -193,7 +192,12 @@ def duckduckgo_search(query: str, limit: int = 10) -> Optional[Dict[str, Any]]:
         return result
 
     # Fall back to Jina Reader approach
-    return _ddg_jina_search(query, limit)
+    result = _ddg_jina_search(query, limit)
+    if result:
+        return result
+
+    # Both HTML scraping paths failed -> fall back to ddgs
+    return _ddgs_fallback(query, limit, "duckduckgo")
 
 
 def _ddg_html_search(query: str, limit: int) -> Optional[Dict[str, Any]]:
@@ -337,7 +341,7 @@ def bing_search(query: str, limit: int = 10) -> Optional[Dict[str, Any]]:
     except Exception as exc:
         logger.debug("Bing search failed: %s", exc)
 
-    return None
+    return _ddgs_fallback(query, limit, "bing")
 
 
 def _parse_bing_results(html: str, limit: int) -> List[Dict[str, Any]]:
@@ -394,7 +398,7 @@ def brave_search(query: str, limit: int = 10) -> Optional[Dict[str, Any]]:
     except Exception as exc:
         logger.debug("Brave search failed: %s", exc)
 
-    return None
+    return _ddgs_fallback(query, limit, "brave")
 
 
 def _parse_brave_results(html: str, limit: int) -> List[Dict[str, Any]]:
@@ -449,7 +453,7 @@ def startpage_search(query: str, limit: int = 10) -> Optional[Dict[str, Any]]:
     except Exception as exc:
         logger.debug("StartPage search failed: %s", exc)
 
-    return None
+    return _ddgs_fallback(query, limit, "startpage")
 
 
 def _parse_startpage_results(html: str, limit: int) -> List[Dict[str, Any]]:
@@ -503,7 +507,7 @@ def yahoo_search(query: str, limit: int = 10) -> Optional[Dict[str, Any]]:
     except Exception as exc:
         logger.debug("Yahoo search failed: %s", exc)
 
-    return None
+    return _ddgs_fallback(query, limit, "yahoo")
 
 
 def _parse_yahoo_results(html: str, limit: int) -> List[Dict[str, Any]]:
@@ -557,7 +561,7 @@ def ecosia_search(query: str, limit: int = 10) -> Optional[Dict[str, Any]]:
     except Exception as exc:
         logger.debug("Ecosia search failed: %s", exc)
 
-    return None
+    return _ddgs_fallback(query, limit, "ecosia")
 
 
 def _parse_ecosia_results(html: str, limit: int) -> List[Dict[str, Any]]:

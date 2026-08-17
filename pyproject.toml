@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-eye"
-version = "6.4.0"
+version = "6.5.1"
 description = "Complete internet data access for AI agents — zero API keys, zero cost"
 readme = "README.md"
 license = {text = "MIT"}
@@ -30,10 +30,10 @@ dependencies = [
     "httpx>=0.27.0",
     "beautifulsoup4>=4.12.0",
     "pyyaml>=6.0",
+    "ddgs>=9.0.0",
 ]
 
 [project.optional-dependencies]
-ddgs = ["ddgs>=9.0.0"]
 mcp = ["mcp>=1.0.0"]
 api = ["fastapi>=0.110.0", "uvicorn[standard]>=0.27.0"]
 test = ["pytest>=7.0.0", "respx>=0.21.0", "responses>=0.23.0"]
