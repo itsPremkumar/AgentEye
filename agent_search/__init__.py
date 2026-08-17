@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Agent Search Lite — Free web search for AI agents.
+"""Agent Search Lite — Free Web Search for AI agents.
 
 Completely free, zero API key required.
 Multiple backends with parallel execution.
@@ -9,11 +9,11 @@ Based on Agent Reach by Panniantong (MIT licensed).
 See LICENSE for details.
 """
 
-__version__ = "2.2.0"
+__version__ = "3.0.0"
 __author__ = "Agent Search Lite Contributors"
 __license__ = "MIT"
 
-from agent_search.core import AgentSearchLite, STRATEGY_MODES
+from agent_search.core import AgentSearchLite, STRATEGY_MODES, interactive_mode
 from agent_search.exceptions import (
     AgentSearchError,
     AllBackendsFailedError,
@@ -38,6 +38,7 @@ from agent_search.ranking import (
 __all__ = [
     "AgentSearchLite",
     "STRATEGY_MODES",
+    "interactive_mode",
     "AgentSearchError",
     "AllBackendsFailedError",
     "BackendError",

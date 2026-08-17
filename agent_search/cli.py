@@ -5,7 +5,7 @@ import argparse
 import json
 import sys
 
-from agent_search.core import AgentSearchLite, STRATEGY_MODES
+from agent_search.core import AgentSearchLite, STRATEGY_MODES, interactive_mode
 from agent_search.exceptions import (
     AgentSearchError,
     InvalidModeError,
@@ -17,9 +17,9 @@ def main():
     parser = argparse.ArgumentParser(
         prog="agent-search-lite",
         description="Free web search + content extraction for AI agents",
-        epilog="Agent Search Lite v2.3.0 — Based on Agent Reach by Panniantong (MIT)",
+        epilog="Agent Search Lite v3.0.0 — Based on Agent Reach by Panniantong (MIT)",
     )
-    parser.add_argument("--version", action="version", version="agent-search-lite 2.3.0")
+    parser.add_argument("--version", action="version", version="agent-search-lite 3.0.0")
     
     sub = parser.add_subparsers(dest="command")
     
@@ -36,6 +36,9 @@ def main():
     p_search.add_argument("--site", help="Search specific site (e.g., github.com, wikipedia.org)")
     p_search.add_argument("--after", help="Results after date (YYYY-MM-DD)")
     p_search.add_argument("--before", help="Results before date (YYYY-MM-DD)")
+    p_search.add_argument("--summarize", action="store_true", help="Generate summary of results")
+    p_search.add_argument("--export", choices=["json", "csv", "markdown"], help="Export format")
+    p_search.add_argument("--output", help="Output file path")
     
     # extract
     p_extract = sub.add_parser("extract", help="Extract content from URLs")
@@ -48,6 +51,16 @@ def main():
     
     # modes
     sub.add_parser("modes", help="List available strategy modes")
+    
+    # history
+    sub.add_parser("history", help="Show search history")
+    
+    # analytics
+    sub.add_parser("analytics", help="Show search analytics")
+    
+    # interactive
+    sub.add_parser("interactive", help="Start interactive search mode")
+    sub.add_parser("repl", help="Alias for interactive mode")
     
     args = parser.parse_args()
     
@@ -71,8 +84,14 @@ def main():
                 date_after=args.after,
                 date_before=args.before,
             )
-            if args.json:
-                print(json.dumps(result, indent=2, ensure_ascii=False))
+            if args.json or args.export:
+                output = search.export(result.get("data", {}).get("web", []), args.export or "json", args.query)
+                if args.output:
+                    with open(args.output, "w", encoding="utf-8") as f:
+                        f.write(output)
+                    print(f"Results saved to {args.output}")
+                else:
+                    print(output)
             else:
                 if result["success"]:
                     print(f"Mode: {result['data'].get('mode', 'general')}")
@@ -89,6 +108,9 @@ def main():
                             print(f"   {item['description'][:100]}")
                         print(f"   [source: {item.get('source', 'unknown')} | relevance: {item.get('relevance_score', 0):.2f}]")
                         print()
+                    if args.summarize:
+                        print("=== Summary ===")
+                        print(search.summarize(result["data"]["web"], args.query))
                 else:
                     print(f"Error: {result.get('error')}", file=sys.stderr)
                     if result.get('errors'):
@@ -119,6 +141,25 @@ def main():
                 print(f"\n  {mode}:")
                 print(f"    {config['description']}")
                 print(f"    Backends: {', '.join(config['backends'])}")
+        
+        elif args.command == "history":
+            history = search.history()
+            print("Search History:")
+            print("=" * 45)
+            for h in history[:10]:
+                print(f"  {h['query'][:50]} ({h['result_count']} results)")
+        
+        elif args.command == "analytics":
+            analytics = search.analytics()
+            print("Search Analytics:")
+            print("=" * 45)
+            print(f"  Total searches: {analytics.get('total_searches', 0)}")
+            print(f"  Modes used: {analytics.get('modes_used', {})}")
+            print(f"  Sources used: {analytics.get('sources_used', {})}")
+        
+        elif args.command in ("interactive", "repl"):
+            from agent_search.core import interactive_mode
+            interactive_mode()
     
     except InvalidModeError as exc:
         print(f"Error: {exc}", file=sys.stderr)

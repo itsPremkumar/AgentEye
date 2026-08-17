@@ -4,44 +4,47 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-search-lite"
-version = "2.0.0"
-description = "Completely free web search + content extraction for AI agents (zero API keys)"
+version = "3.0.0"
+description = "Completely free web search + content extraction for AI agents"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 authors = [
     {name = "Agent Search Lite Contributors"},
 ]
+keywords = ["search", "ai", "agent", "free", "web", "mcp"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
-    "Topic :: Software Development :: Libraries",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+
 dependencies = [
-    "pyyaml>=6.0",
     "httpx>=0.27.0",
-    "rich>=13.0",
-    "loguru>=0.7.0",
+    "beautifulsoup4>=4.12.0",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
-ddgs = ["ddgs>=4.0"]
+ddgs = ["ddgs>=9.0.0"]
+mcp = ["mcp>=1.0.0"]
+all = ["ddgs>=9.0.0", "mcp>=1.0.0"]
 
 [project.scripts]
-agent-search-lite = "agent_search.cli:main"
-asearch = "agent_search.cli:main"
+agent-search-lite = "agent_search.core:main"
+agent-search-mcp = "agent_search.mcp_server:main"
 
 [project.urls]
 Homepage = "https://github.com/itsPremkumar/agent-search-lite"
-Documentation = "https://github.com/itsPremkumar/agent-search-lite"
 Repository = "https://github.com/itsPremkumar/agent-search-lite"
+Issues = "https://github.com/itsPremkumar/agent-search-lite/issues"
 
 [tool.setuptools.packages.find]
 include = ["agent_search*"]
-exclude = ["tests*", "docs*"]
