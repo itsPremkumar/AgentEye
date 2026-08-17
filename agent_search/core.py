@@ -73,6 +73,17 @@ from agent_search.bookmarks import (
     remove_bookmark,
     search_bookmarks,
 )
+from agent_search.commerce_gov import (
+    datagov_search,
+    google_patents_search,
+    jobs_search,
+    nws_search,
+    opencorporates_search,
+    patents_search,
+    undata_search,
+    weather_search,
+    worldbank_search,
+)
 from agent_search.config import add_to_history, ensure_config, get_analytics, load_history
 from agent_search.dev_backends import (
     bitbucket_search,
@@ -111,6 +122,14 @@ from agent_search.knowledge_backends import (
     rss_search,
     wayback_search,
     wikidata_search,
+)
+from agent_search.media_backends import (
+    anilist_search,
+    boardgameatlas_search,
+    lastfm_search,
+    mal_search,
+    openlibrary_search,
+    tmdb_search,
 )
 from agent_search.ranking import (
     cross_verify,
@@ -157,7 +176,7 @@ from agent_search.throttle import (
 
 logger = logging.getLogger(__name__)
 
-__version__ = "4.0.0"
+__version__ = "4.1.0"
 __author__ = "Agent Search Lite Contributors"
 __license__ = "MIT"
 __attribution__ = (
@@ -607,6 +626,21 @@ class AgentSearchLite:
             "semantic_scholar": lambda q, l: semantic_scholar_search(q, l),
             "crossref": lambda q, l: crossref_search(q, l),
             "openalex": lambda q, l: openalex_search(q, l),
+            "datagov": lambda q, l: datagov_search(q, l),
+            "worldbank": lambda q, l: worldbank_search(q, l),
+            "undata": lambda q, l: undata_search(q, l),
+            "weather": lambda q, l: weather_search(q, l),
+            "nws": lambda q, l: nws_search(q, l),
+            "patents": lambda q, l: patents_search(q, l),
+            "google_patents": lambda q, l: google_patents_search(q, l),
+            "jobs": lambda q, l: jobs_search(q, l),
+            "opencorporates": lambda q, l: opencorporates_search(q, l),
+            "tmdb": lambda q, l: tmdb_search(q, l),
+            "lastfm": lambda q, l: lastfm_search(q, l),
+            "openlibrary": lambda q, l: openlibrary_search(q, l),
+            "anilist": lambda q, l: anilist_search(q, l),
+            "mal": lambda q, l: mal_search(q, l),
+            "boardgameatlas": lambda q, l: boardgameatlas_search(q, l),
         }
 
     def _get_backends_for_mode(self, mode: str) -> List[tuple[str, callable]]:
