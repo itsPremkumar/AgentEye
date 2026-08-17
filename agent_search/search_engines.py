@@ -18,6 +18,27 @@ import httpx
 
 from agent_search.throttle import ua_rotator
 
+# Active search language (set per search() call). Backends read this so a
+# requested language (e.g. "ta", "hi") is forwarded to the upstream service
+# instead of always defaulting to English. Empty string -> service default.
+_SEARCH_LANG = ""
+
+
+def set_search_lang(lang: str) -> None:
+    """Set the language used by subsequent scraper/ddgs calls ('' = default)."""
+    global _SEARCH_LANG
+    _SEARCH_LANG = (lang or "").strip()
+
+
+def get_search_lang() -> str:
+    return _SEARCH_LANG
+
+
+def _accept_language() -> str:
+    """Build an Accept-Language header from the active search language."""
+    return f"{_SEARCH_LANG};q=0.9, en;q=0.8" if _SEARCH_LANG else "en-US,en;q=0.9"
+
+
 logger = logging.getLogger(__name__)
 
 GOOGLE_SEARCH = "https://www.google.com/search"
@@ -49,7 +70,10 @@ def _ddgs_fallback(query: str, limit: int, source: str) -> Optional[Dict[str, An
     try:
         results: List[Dict[str, Any]] = []
         with DDGS(timeout=10) as client:
-            for i, hit in enumerate(client.text(query, max_results=limit)):
+            kwargs = {"max_results": limit}
+            if _SEARCH_LANG:
+                kwargs["region"] = _SEARCH_LANG
+            for i, hit in enumerate(client.text(query, **kwargs)):
                 if i >= limit:
                     break
                 url = str(hit.get("href") or hit.get("url") or "")
@@ -88,7 +112,7 @@ def google_search(query: str, limit: int = 10) -> Optional[Dict[str, Any]]:
             headers={
                 "User-Agent": ua_rotator.get(),
                 "Accept": "text/html,application/xhtml+xml",
-                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Language": _accept_language(),
             },
             timeout=15,
             follow_redirects=True,
@@ -302,7 +326,7 @@ def bing_search(query: str, limit: int = 10) -> Optional[Dict[str, Any]]:
             params={"q": query, "count": limit},
             headers={
                 "User-Agent": ua_rotator.get(),
-                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Language": _accept_language(),
             },
             timeout=15,
         )
@@ -359,7 +383,7 @@ def brave_search(query: str, limit: int = 10) -> Optional[Dict[str, Any]]:
             params={"q": query, "source": "web"},
             headers={
                 "User-Agent": ua_rotator.get(),
-                "Accept-Language": "en-US,en;q=0.9",
+                "Accept-Language": _accept_language(),
             },
             timeout=15,
         )

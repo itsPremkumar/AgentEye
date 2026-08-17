@@ -24,11 +24,99 @@ from agent_search.seo_extractor import extract_all_structured_data
 from agent_search.sitemap_parser import (
     discover_sitemaps,
     get_all_urls_from_sitemap,
+    is_url_allowed,
     parse_robots_txt,
 )
 from agent_search.throttle import ua_rotator
+from agent_search.exceptions import RobotsDisallowedError
 
 logger = logging.getLogger(__name__)
+
+# Fetch guards — protect the host machine (e.g. a 6GB laptop) from runaway
+# downloads / redirect loops / thundering-herd crawls.
+_MAX_FETCH_BYTES = 25 * 1024 * 1024  # 25 MB cap per response body
+_MAX_REDIRECTS = 5
+_FETCH_TIMEOUT = 30.0
+_DOMAIN_CONCURRENCY = 2  # max simultaneous requests per domain
+
+# Per-domain semaphore registry (module-level, shared across crawl/collect runs)
+_domain_semaphores: Dict[str, "object"] = {}
+_domain_semaphores_lock = None
+
+
+def _domain_key(url: str) -> str:
+    try:
+        return urllib.parse.urlparse(url).netloc or url
+    except Exception:
+        return url
+
+
+def _domain_semaphore(domain: str):
+    """Return a bounded semaphore limiting concurrency for a given domain."""
+    global _domain_semaphores_lock
+    if _domain_semaphores_lock is None:
+        import threading
+        _domain_semaphores_lock = threading.Lock()
+    with _domain_semaphores_lock:
+        sem = _domain_semaphores.get(domain)
+        if sem is None:
+            sem = __import__("threading").Semaphore(_DOMAIN_CONCURRENCY)
+            _domain_semaphores[domain] = sem
+        return sem
+
+
+def guarded_get(url: str, *, headers: Dict[str, str] = None, timeout: float = _FETCH_TIMEOUT) -> "object":
+    """httpx GET with size + redirect guards.
+
+    Streams the response and aborts if the body exceeds ``_MAX_FETCH_BYTES`` or
+    redirects exceed ``_MAX_REDIRECTS``. Raises ``RobotsDisallowedError`` is NOT
+    checked here (callers decide policy); this only enforces transport limits.
+    """
+    with httpx.Client(
+        timeout=timeout,
+        follow_redirects=True,
+        max_redirects=_MAX_REDIRECTS,
+        headers=headers or {"User-Agent": ua_rotator.get()},
+    ) as client:
+        resp = client.get(url)
+        # Stream-read with a hard byte ceiling so a huge page can't OOM the host.
+        chunks = []
+        total = 0
+        for chunk in resp.iter_bytes(chunk_size=64 * 1024):
+            total += len(chunk)
+            if total > _MAX_FETCH_BYTES:
+                resp.close()
+                raise httpx.DecodeError(
+                    f"Response exceeded {_MAX_FETCH_BYTES} bytes; aborting fetch of {url}"
+                )
+            chunks.append(chunk)
+        resp._content = b"".join(chunks)
+        return resp
+
+
+def assert_allowed(url: str, user_agent: str = "*") -> None:
+    """Raise ``RobotsDisallowedError`` if robots.txt disallows ``url``."""
+    try:
+        if not is_url_allowed(url, user_agent):
+            rule = ""
+            try:
+                parsed = urllib.parse.urlparse(url)
+                base = f"{parsed.scheme}://{parsed.netloc}"
+                robots = parse_robots_txt(base)
+                for agent in [user_agent, "*"]:
+                    rules = robots.get("agents", {}).get(agent, {})
+                    for dis in rules.get("disallow", []):
+                        if (parsed.path or "/").startswith(dis):
+                            rule = dis
+                            break
+            except Exception:
+                pass
+            raise RobotsDisallowedError(url, rule)
+    except RobotsDisallowedError:
+        raise
+    except Exception:
+        # If robots.txt can't be fetched/parsed, fail open (allow).
+        return
 
 
 # ---------------------------------------------------------------------------
@@ -430,6 +518,43 @@ def wayback_latest_snapshot(url: str) -> Optional[Dict[str, str]]:
 # Full Website Crawler
 # ---------------------------------------------------------------------------
 
+def _process_single_url(
+    url: str,
+    extract_content: bool = True,
+    extract_seo: bool = True,
+    respect_robots: bool = True,
+    user_agent: str = "*",
+) -> Dict[str, Any]:
+    """Fetch and extract a single URL with robots + fetch guards.
+
+    This is the worker used by ``crawl_website`` and ``collect_from_sitemap``.
+    It enforces robots.txt (unless ``respect_robots=False``) and caps the
+    response size / redirects so a single huge or looping page cannot exhaust
+    the host.
+    """
+    if respect_robots:
+        assert_allowed(url, user_agent)
+
+    domain = _domain_key(url)
+    sem = _domain_semaphore(domain)
+    with sem:
+        resp = guarded_get(url)
+        resp.raise_for_status()
+        body = resp.text[:_MAX_FETCH_BYTES]
+
+    from agent_search.document_intel import extract_document
+
+    page: Dict[str, Any] = {"url": url}
+    try:
+        if extract_content:
+            page["content"] = smart_extract(body, url, char_limit=15000)
+        if extract_seo:
+            page["seo"] = extract_all_structured_data(body, url)
+    except Exception as exc:
+        page["extract_error"] = str(exc)
+    return page
+
+
 def crawl_website(
     base_url: str,
     max_pages: int = 50,
@@ -438,9 +563,11 @@ def crawl_website(
     extract_seo: bool = True,
     follow_external: bool = False,
     url_filter: Callable[[str], bool] = None,
+    respect_robots: bool = True,
+    user_agent: str = "*",
 ) -> Dict[str, Any]:
     """Crawl a website starting from sitemaps and following links.
-    
+
     Args:
         base_url: Starting URL
         max_pages: Maximum pages to crawl
@@ -449,6 +576,9 @@ def crawl_website(
         extract_seo: Extract SEO data
         follow_external: Follow external links
         url_filter: Custom URL filter function
+        respect_robots: Skip URLs disallowed by robots.txt (default True)
+        user_agent: User-agent string used for the robots.txt check
+
     
     Returns:
         Crawl results with all pages
@@ -473,7 +603,17 @@ def crawl_website(
     # Process URLs
     for url in urls[:max_pages]:
         try:
-            page_data = _process_single_url(url, extract_content, extract_seo)
+            if respect_robots and not is_url_allowed(url, user_agent):
+                result["skipped"] = result.get("skipped", 0) + 1
+                result["pages"].append({
+                    "url": url,
+                    "skipped": True,
+                    "reason": "robots.txt disallowed",
+                })
+                continue
+            page_data = _process_single_url(
+                url, extract_content, extract_seo, respect_robots, user_agent
+            )
             result["pages"].append(page_data)
             result["crawled"] += 1
         except Exception as exc:

@@ -162,6 +162,7 @@ from agent_search.exceptions import (
     InvalidURLError,
     NetworkError,
     RateLimitError,
+    RobotsDisallowedError,
     TimeoutError,
 )
 from agent_search.export import export as export_results
@@ -233,6 +234,10 @@ from agent_search.sitemap_parser import (
     is_url_allowed,
     parse_robots_txt,
     parse_sitemap,
+)
+from agent_search.batch_collector import (
+    assert_allowed,
+    guarded_get,
 )
 from agent_search.scheduler import (
     add_scheduled_search,
@@ -605,9 +610,14 @@ def _ddgs_search(query: str, limit: int = 5) -> Optional[Dict[str, Any]]:
     except ImportError:
         return None
     try:
+        from agent_search.search_engines import get_search_lang
         results = []
+        kwargs = {"max_results": limit}
+        lang = get_search_lang()
+        if lang:
+            kwargs["region"] = lang
         with DDGS(timeout=10) as client:
-            for i, hit in enumerate(client.text(query, max_results=limit)):
+            for i, hit in enumerate(client.text(query, **kwargs)):
                 if i >= limit:
                     break
                 url = str(hit.get("href") or hit.get("url") or "")
@@ -842,7 +852,11 @@ class AgentSearchLite:
             parsed["date_before"] = date_before
         if lang:
             parsed["lang"] = lang
-        
+
+        # Forward the requested language to the search backends (scrapers + ddgs)
+        from agent_search.search_engines import set_search_lang
+        set_search_lang(parsed.get("lang") or "")
+
         base_query = clean_query
         if parsed["site"]:
             base_query = f"{clean_query} site:{parsed['site']}"
@@ -893,6 +907,9 @@ class AgentSearchLite:
                 except Exception as exc:
                     logger.debug("Backend %s failed for '%s': %s", name, q, exc)
                     errors[name] = str(exc)
+
+        # Reset language context so it doesn't leak into later calls
+        set_search_lang("")
 
         if all_results:
             # Deduplicate
@@ -945,25 +962,44 @@ class AgentSearchLite:
         
         return {"success": False, "error": "All search backends failed", "errors": errors}
 
-    def extract(self, urls: List[str], char_limit: int = 15000, smart: bool = True) -> List[Dict[str, Any]]:
-        """Extract content from URLs via Jina Reader with fallback."""
+    def extract(
+        self,
+        urls: List[str],
+        char_limit: int = 15000,
+        smart: bool = True,
+        respect_robots: bool = True,
+        user_agent: str = "*",
+    ) -> List[Dict[str, Any]]:
+        """Extract content from URLs via Jina Reader with fallback.
+
+        Enforces robots.txt (unless ``respect_robots=False``) and caps response
+        size so a single huge page cannot exhaust the host.
+        """
         results = []
         for url in urls:
             try:
                 if not url.startswith(("http://", "https://")):
                     raise InvalidURLError(url)
-                
-                # Try Jina Reader first
+
+                if respect_robots:
+                    assert_allowed(url, user_agent)
+
+                # Try Jina Reader first (guarded GET)
                 try:
-                    resp = httpx.get(f"{_JINA_ENDPOINT}{url}", headers={"User-Agent": _UA, "Accept": "text/plain"}, timeout=30, follow_redirects=True)
+                    resp = guarded_get(
+                        f"{_JINA_ENDPOINT}{url}",
+                        headers={"User-Agent": _UA, "Accept": "text/plain"},
+                    )
                     resp.raise_for_status()
                     body = resp.text[:_MAX_JINA_BYTES]
+                except (RobotsDisallowedError, InvalidURLError):
+                    raise
                 except Exception:
                     # Fallback to direct request
-                    resp = httpx.get(url, headers={"User-Agent": ua_rotator.get()}, timeout=30, follow_redirects=True)
+                    resp = guarded_get(url)
                     resp.raise_for_status()
                     body = resp.text[:_MAX_JINA_BYTES]
-                
+
                 if smart:
                     extracted = smart_extract(body, url, char_limit)
                     results.append(extracted)
@@ -975,6 +1011,8 @@ class AgentSearchLite:
                             break
                     content = body[:char_limit]
                     results.append({"url": url, "title": title, "content": content, "raw_content": body, "metadata": {"source": "jina-reader", "bytes": len(body)}})
+            except RobotsDisallowedError as exc:
+                results.append({"url": url, "title": "", "content": "", "raw_content": "", "error": str(exc), "robots_disallowed": True})
             except InvalidURLError as exc:
                 results.append({"url": url, "title": "", "content": "", "raw_content": "", "error": str(exc)})
             except httpx.HTTPStatusError as exc:
@@ -983,18 +1021,32 @@ class AgentSearchLite:
                 results.append({"url": url, "title": "", "content": "", "raw_content": "", "error": str(exc)})
         return results
 
-    def extract_seo(self, urls: List[str]) -> List[Dict[str, Any]]:
-        """Extract SEO, GEO, AEO, and structured data from URLs."""
+    def extract_seo(
+        self,
+        urls: List[str],
+        respect_robots: bool = True,
+        user_agent: str = "*",
+    ) -> List[Dict[str, Any]]:
+        """Extract SEO, GEO, AEO, and structured data from URLs.
+
+        Enforces robots.txt (unless ``respect_robots=False``).
+        """
         results = []
         for url in urls:
             try:
                 if not url.startswith(("http://", "https://")):
                     continue
-                resp = httpx.get(url, headers={"User-Agent": ua_rotator.get()}, timeout=30, follow_redirects=True)
+
+                if respect_robots:
+                    assert_allowed(url, user_agent)
+
+                resp = guarded_get(url)
                 resp.raise_for_status()
                 body = resp.text[:_MAX_JINA_BYTES]
                 seo_data = extract_all_structured_data(body, url)
                 results.append(seo_data)
+            except RobotsDisallowedError as exc:
+                results.append({"url": url, "error": str(exc), "robots_disallowed": True})
             except Exception as exc:
                 results.append({"url": url, "error": str(exc)})
         return results

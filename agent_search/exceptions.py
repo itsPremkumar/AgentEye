@@ -109,3 +109,20 @@ class ConfigurationError(AgentSearchError):
 
     def __init__(self, message: str):
         super().__init__(f"Configuration error: {message}")
+
+
+class RobotsDisallowedError(AgentSearchError):
+    """Raised when a URL is disallowed by the target site's robots.txt.
+
+    Production-grade crawlers must respect robots.txt. We surface this as a
+    distinct error so callers (and agents) can report the restriction instead
+    of silently fetching content they were asked not to.
+    """
+
+    def __init__(self, url: str, rule: str = ""):
+        self.url = url
+        self.rule = rule
+        msg = f"URL disallowed by robots.txt: '{url}'"
+        if rule:
+            msg += f" (rule: {rule})"
+        super().__init__(msg)
