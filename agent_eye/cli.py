@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Agent Search Lite — CLI for free web search."""
+"""AgentEye — CLI for free internet data access."""
 
 import argparse
 import json
 import sys
 
-from agent_search.core import AgentSearchLite, STRATEGY_MODES, interactive_mode
-from agent_search.exceptions import (
+from agent_eye.core import AgentSearchLite, STRATEGY_MODES, interactive_mode
+from agent_eye.exceptions import (
     AgentSearchError,
     InvalidModeError,
     InvalidURLError,
@@ -15,11 +15,11 @@ from agent_search.exceptions import (
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="agent-search-lite",
-        description="Free web search + content extraction for AI agents",
-        epilog="Agent Search Lite v3.0.0 — Based on Agent Reach by Panniantong (MIT)",
+        prog="agent-eye",
+        description="Complete internet data access for AI agents — zero API keys, zero cost",
+        epilog="AgentEye v6.4.0 — Based on Agent Reach by Panniantong (MIT)",
     )
-    parser.add_argument("--version", action="version", version="agent-search-lite 3.0.0")
+    parser.add_argument("--version", action="version", version="agent-eye 6.4.0")
     
     sub = parser.add_subparsers(dest="command")
     
@@ -158,7 +158,7 @@ def main():
             print(f"  Sources used: {analytics.get('sources_used', {})}")
         
         elif args.command in ("interactive", "repl"):
-            from agent_search.core import interactive_mode
+            from agent_eye.core import interactive_mode
             interactive_mode()
     
     except InvalidModeError as exc:

@@ -19,7 +19,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from agent_search.throttle import ua_rotator
+from agent_eye.throttle import ua_rotator
 
 logger = logging.getLogger(__name__)
 

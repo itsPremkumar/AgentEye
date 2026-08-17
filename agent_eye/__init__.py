@@ -1,20 +1,19 @@
 # -*- coding: utf-8 -*-
-"""Agent Search Lite — Free Web Search for AI agents.
+"""AgentEye — Complete Internet Data Access for AI Agents.
 
-Completely free, zero API key required.
-Multiple backends with parallel execution.
+Zero API keys. Zero cost. 80+ free backends.
 
-Copyright (c) 2026 Agent Search Lite Contributors.
+Copyright (c) 2026 AgentEye Contributors.
 Based on Agent Reach by Panniantong (MIT licensed).
 See LICENSE for details.
 """
 
-__version__ = "3.0.0"
-__author__ = "Agent Search Lite Contributors"
+__version__ = "6.4.0"
+__author__ = "AgentEye Contributors"
 __license__ = "MIT"
 
-from agent_search.core import AgentSearchLite, STRATEGY_MODES, interactive_mode
-from agent_search.exceptions import (
+from agent_eye.core import AgentSearchLite, STRATEGY_MODES, interactive_mode
+from agent_eye.exceptions import (
     AgentSearchError,
     AllBackendsFailedError,
     BackendError,
@@ -26,8 +25,8 @@ from agent_search.exceptions import (
     RateLimitError,
     TimeoutError,
 )
-from agent_search.extractors import smart_extract, score_readability
-from agent_search.ranking import (
+from agent_eye.extractors import smart_extract, score_readability
+from agent_eye.ranking import (
     cross_verify,
     rank_results,
     quality_score,

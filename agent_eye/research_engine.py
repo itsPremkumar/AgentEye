@@ -30,7 +30,7 @@ def research(
 ) -> Dict[str, Any]:
     """Conduct multi-step research on a question."""
     # Local import to avoid circular import
-    from agent_search.core import AgentSearchLite
+    from agent_eye.core import AgentSearchLite
     search = AgentSearchLite()
     
     result = {

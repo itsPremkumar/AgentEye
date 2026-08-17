@@ -1,10 +1,10 @@
-# AgentLens — Complete Internet Data Access for AI Agents
+# AgentEye — Complete Internet Data Access for AI Agents
 
-**Zero API keys. Zero cost. 60+ free backends. Full internet data collection.**
+**Zero API keys. Zero cost. 80+ free backends. Full internet data collection.**
 
-AgentLens provides **completely free** internet data access for AI agents. No API keys, no signups, no billing — just works. Search, extract, crawl, and research the entire public web.
+AgentEye provides **completely free** internet data access for AI agents. No API keys, no signups, no billing — just works. Search, extract, crawl, and research the entire public web.
 
-## Why AgentLens?
+## Why AgentEye?
 
 Most web search backends require paid API keys (Firecrawl, Exa, Parallel, Tavily). AgentLens fills the gap with **genuinely free** access from 60+ sources across every category:
 

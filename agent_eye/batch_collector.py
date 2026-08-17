@@ -19,14 +19,14 @@ from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
-from agent_search.extractors import smart_extract
-from agent_search.seo_extractor import extract_all_structured_data
-from agent_search.sitemap_parser import (
+from agent_eye.extractors import smart_extract
+from agent_eye.seo_extractor import extract_all_structured_data
+from agent_eye.sitemap_parser import (
     discover_sitemaps,
     get_all_urls_from_sitemap,
     parse_robots_txt,
 )
-from agent_search.throttle import ua_rotator
+from agent_eye.throttle import ua_rotator
 
 logger = logging.getLogger(__name__)
 

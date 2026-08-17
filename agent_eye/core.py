@@ -26,7 +26,7 @@ Features:
 - Configuration file support
 
 Usage:
-    from agent_search.core import AgentSearchLite
+    from agent_eye.core import AgentSearchLite
     search = AgentSearchLite()
     result = search.search("query", mode="code")
     results = search.extract(["https://example.com"])
@@ -56,14 +56,14 @@ from typing import Any, Dict, List, Optional
 import httpx
 import yaml
 
-from agent_search.academic import arxiv_search, wikipedia_search
-from agent_search.academic_backends import (
+from agent_eye.academic import arxiv_search, wikipedia_search
+from agent_eye.academic_backends import (
     crossref_search,
     openalex_search,
     pubmed_search,
     semantic_scholar_search,
 )
-from agent_search.bookmarks import (
+from agent_eye.bookmarks import (
     add_bookmark,
     add_to_collection,
     create_collection,
@@ -73,14 +73,14 @@ from agent_search.bookmarks import (
     remove_bookmark,
     search_bookmarks,
 )
-from agent_search.batch_collector import (
+from agent_eye.batch_collector import (
     crawl_website,
     discover_feeds,
     parse_feed,
     wayback_cdx_search,
     wayback_latest_snapshot,
 )
-from agent_search.commerce_gov import (
+from agent_eye.commerce_gov import (
     datagov_search,
     google_patents_search,
     jobs_search,
@@ -91,17 +91,17 @@ from agent_search.commerce_gov import (
     weather_search,
     worldbank_search,
 )
-from agent_search.config import add_to_history, ensure_config, get_analytics, load_history
-from agent_search.dev_backends import (
+from agent_eye.config import add_to_history, ensure_config, get_analytics, load_history
+from agent_eye.dev_backends import (
     bitbucket_search,
     dockerhub_search,
     gitlab_search,
     npm_search,
     pypi_search,
 )
-from agent_search.cache import MultiLevelCache, get_cache, cache_key, cached
-from agent_search.fts_search import SearchIndex, get_index, index_page, search_pages
-from agent_search.intelligence import (
+from agent_eye.cache import MultiLevelCache, get_cache, cache_key, cached
+from agent_eye.fts_search import SearchIndex, get_index, index_page, search_pages
+from agent_eye.intelligence import (
     quality_score,
     rank_results,
     generate_citation,
@@ -111,24 +111,24 @@ from agent_search.intelligence import (
     get_domain_profile,
     SUPPORTED_LANGUAGES,
 )
-from agent_search.capability_detector import (
+from agent_eye.capability_detector import (
     classify_website,
     detect_capabilities,
     discover_api_endpoints,
 )
-from agent_search.change_detector import (
+from agent_eye.change_detector import (
     ChangeMonitor,
     check_availability,
     monitor_content,
     monitor_price,
 )
-from agent_search.common_crawl import (
+from agent_eye.common_crawl import (
     analyze_domain,
     fetch_from_common_crawl,
     search_common_crawl,
     search_domain,
 )
-from agent_search.extra_apis import (
+from agent_eye.extra_apis import (
     cocoapods_search,
     conceptnet_lookup,
     datamuse_rhymes,
@@ -145,14 +145,14 @@ from agent_search.extra_apis import (
     usgs_volcanoes,
     wordnet_lookup,
 )
-from agent_search.document_intel import (
+from agent_eye.document_intel import (
     extract_document,
     extract_docx,
     extract_pdf,
     extract_pptx,
     extract_xlsx,
 )
-from agent_search.exceptions import (
+from agent_eye.exceptions import (
     AgentSearchError,
     AllBackendsFailedError,
     BackendError,
@@ -164,9 +164,9 @@ from agent_search.exceptions import (
     RateLimitError,
     TimeoutError,
 )
-from agent_search.export import export as export_results
-from agent_search.extractors import smart_extract, score_readability
-from agent_search.extra_backends import (
+from agent_eye.export import export as export_results
+from agent_eye.extractors import smart_extract, score_readability
+from agent_eye.extra_backends import (
     cluster_results,
     devto_search,
     filter_by_freshness,
@@ -175,7 +175,7 @@ from agent_search.extra_backends import (
     sort_by_freshness,
     wikipedia_search_multi,
 )
-from agent_search.knowledge_backends import (
+from agent_eye.knowledge_backends import (
     dbpedia_search,
     geonames_search,
     osm_search,
@@ -183,7 +183,7 @@ from agent_search.knowledge_backends import (
     wayback_search,
     wikidata_search,
 )
-from agent_search.media_backends import (
+from agent_eye.media_backends import (
     anilist_search,
     boardgameatlas_search,
     lastfm_search,
@@ -191,32 +191,32 @@ from agent_search.media_backends import (
     openlibrary_search,
     tmdb_search,
 )
-from agent_search.ranking import (
+from agent_eye.ranking import (
     cross_verify,
     format_token_conscious,
     is_polluted,
     quality_score,
     rank_results,
 )
-from agent_search.image_intel import (
+from agent_eye.image_intel import (
     analyze_image,
     extract_image_metadata,
     extract_text_from_image,
 )
-from agent_search.research_engine import (
+from agent_eye.research_engine import (
     expand_query,
     research,
     verify_source,
 )
-from agent_search.retry import retry_sync
-from agent_search.search_engines import (
+from agent_eye.retry import retry_sync
+from agent_eye.search_engines import (
     bing_search,
     brave_search,
     duckduckgo_search,
     google_search,
     startpage_search,
 )
-from agent_search.seo_extractor import (
+from agent_eye.seo_extractor import (
     extract_all_structured_data,
     extract_json_ld,
     extract_meta_tags,
@@ -224,7 +224,7 @@ from agent_search.seo_extractor import (
     extract_seo_data,
     extract_twitter_card,
 )
-from agent_search.sitemap_parser import (
+from agent_eye.sitemap_parser import (
     discover_sitemaps,
     discover_website_structure,
     get_all_urls_from_sitemap,
@@ -234,7 +234,7 @@ from agent_search.sitemap_parser import (
     parse_robots_txt,
     parse_sitemap,
 )
-from agent_search.scheduler import (
+from agent_eye.scheduler import (
     add_scheduled_search,
     get_due_scheduled,
     load_scheduled,
@@ -244,21 +244,21 @@ from agent_search.scheduler import (
     trigger_webhook,
     update_scheduled_run,
 )
-from agent_search.video_intel import (
+from agent_eye.video_intel import (
     detect_video_platform,
     extract_video_metadata,
     extract_video_subtitles,
     extract_video_thumbnail,
     youtube_search,
 )
-from agent_search.social import lemmy_search, stackoverflow_search
-from agent_search.social_backends import (
+from agent_eye.social import lemmy_search, stackoverflow_search
+from agent_eye.social_backends import (
     mastodon_search,
     telegram_search,
     twitter_search,
     youtube_search,
 )
-from agent_search.social_tiers import (
+from agent_eye.social_tiers import (
     bluesky_search,
     bluesky_profile,
     instagram_public_search,
@@ -270,7 +270,7 @@ from agent_search.social_tiers import (
     x_public_search,
     get_source_tiers,
 )
-from agent_search.more_backends import (
+from agent_eye.more_backends import (
     crates_io_search,
     go_pkg_search,
     hacker_news_latest,
@@ -286,8 +286,8 @@ from agent_search.more_backends import (
     yahoo_finance_quote,
     yahoo_finance_search,
 )
-from agent_search.summarize import summarize_results
-from agent_search.templates import (
+from agent_eye.summarize import summarize_results
+from agent_eye.templates import (
     TEMPLATES,
     apply_template,
     compare_results,
@@ -295,7 +295,7 @@ from agent_search.templates import (
     get_template_names,
     search_content,
 )
-from agent_search.throttle import (
+from agent_eye.throttle import (
     RateLimiter,
     ReliabilityScorer,
     UserAgentRotator,
@@ -1174,7 +1174,7 @@ class AgentSearchLite:
 
 def interactive_mode():
     """Run interactive search REPL."""
-    from agent_search.summarize import print_welcome, format_interactive_prompt
+    from agent_eye.summarize import print_welcome, format_interactive_prompt
     search = AgentSearchLite()
     print_welcome()
     mode = "general"

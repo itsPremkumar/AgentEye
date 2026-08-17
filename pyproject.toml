@@ -3,16 +3,16 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-search-lite"
-version = "3.0.0"
-description = "Completely free web search + content extraction for AI agents"
+name = "agent-eye"
+version = "6.4.0"
+description = "Complete internet data access for AI agents — zero API keys, zero cost"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.9"
 authors = [
-    {name = "Agent Search Lite Contributors"},
+    {name = "AgentEye Contributors"},
 ]
-keywords = ["search", "ai", "agent", "free", "web", "mcp"]
+keywords = ["search", "ai", "agent", "free", "web", "mcp", "eye"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -38,13 +38,13 @@ mcp = ["mcp>=1.0.0"]
 all = ["ddgs>=9.0.0", "mcp>=1.0.0"]
 
 [project.scripts]
-agent-search-lite = "agent_search.core:main"
-agent-search-mcp = "agent_search.mcp_server:main"
+agent-eye = "agent_eye.core:main"
+agent-eye-mcp = "agent_eye.mcp_server:main"
 
 [project.urls]
-Homepage = "https://github.com/itsPremkumar/agent-search-lite"
-Repository = "https://github.com/itsPremkumar/agent-search-lite"
-Issues = "https://github.com/itsPremkumar/agent-search-lite/issues"
+Homepage = "https://github.com/itsPremkumar/AgentEye"
+Repository = "https://github.com/itsPremkumar/AgentEye"
+Issues = "https://github.com/itsPremkumar/AgentEye/issues"
 
 [tool.setuptools.packages.find]
-include = ["agent_search*"]
+include = ["agent_eye*"]

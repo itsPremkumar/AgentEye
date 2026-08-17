@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Agent Search Lite — Expanded MCP Server.
+"""AgentEye — Expanded MCP Server.
 
 20+ tools following the Firecrawl/SearXNG MCP pattern.
 
-Copyright (c) 2026 Agent Search Lite Contributors.
+Copyright (c) 2026 AgentEye Contributors.
 MIT License. See LICENSE for details.
 """
 
@@ -18,8 +18,8 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
 
-from agent_search.core import AgentSearchLite
-from agent_search.extractors import smart_extract
+from agent_eye.core import AgentSearchLite
+from agent_eye.extractors import smart_extract
 
 logger = logging.getLogger(__name__)
 
@@ -184,47 +184,47 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
                 return [TextContent(type="text", text=f"Search failed: {result.get('error')}")]
 
         elif name == "google_search":
-            from agent_search.search_engines import google_search
+            from agent_eye.search_engines import google_search
             result = google_search(arguments["query"], arguments.get("limit", 10))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
         elif name == "bing_search":
-            from agent_search.search_engines import bing_search
+            from agent_eye.search_engines import bing_search
             result = bing_search(arguments["query"], arguments.get("limit", 10))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
         elif name == "brave_search":
-            from agent_search.search_engines import brave_search
+            from agent_eye.search_engines import brave_search
             result = brave_search(arguments["query"], arguments.get("limit", 10))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
         elif name == "duckduckgo_search":
-            from agent_search.search_engines import duckduckgo_search
+            from agent_eye.search_engines import duckduckgo_search
             result = duckduckgo_search(arguments["query"], arguments.get("limit", 10))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
         elif name == "github_search":
-            from agent_search.core import _github_search
+            from agent_eye.core import _github_search
             result = _github_search(arguments["query"], arguments.get("limit", 5))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
         elif name == "stackoverflow_search":
-            from agent_search.social import stackoverflow_search
+            from agent_eye.social import stackoverflow_search
             result = stackoverflow_search(arguments["query"], arguments.get("limit", 5))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
         elif name == "arxiv_search":
-            from agent_search.academic import arxiv_search
+            from agent_eye.academic import arxiv_search
             result = arxiv_search(arguments["query"], arguments.get("limit", 5))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
         elif name == "pubmed_search":
-            from agent_search.academic_backends import pubmed_search
+            from agent_eye.academic_backends import pubmed_search
             result = pubmed_search(arguments["query"], arguments.get("limit", 5))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
         elif name == "wikipedia_search":
-            from agent_search.academic import wikipedia_search
+            from agent_eye.academic import wikipedia_search
             result = wikipedia_search(arguments["query"], arguments.get("limit", 5))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
@@ -233,7 +233,7 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
             return [TextContent(type="text", text=json.dumps(results, indent=2, ensure_ascii=False))]
 
         elif name == "extract_structured":
-            from agent_search.extractors import extract_json_ld, extract_microdata, extract_open_graph
+            from agent_eye.extractors import extract_json_ld, extract_microdata, extract_open_graph
             result = search_engine.extract([arguments["url"]])
             if result and result[0].get("content"):
                 html = result[0].get("raw_content", "")
@@ -246,32 +246,32 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
             return [TextContent(type="text", text="Could not extract")]
 
         elif name == "weather":
-            from agent_search.commerce_gov import weather_search
+            from agent_eye.commerce_gov import weather_search
             result = weather_search(arguments["city"])
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
         elif name == "location_search":
-            from agent_search.knowledge_backends import osm_search
+            from agent_eye.knowledge_backends import osm_search
             result = osm_search(arguments["query"], arguments.get("limit", 5))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
         elif name == "patent_search":
-            from agent_search.commerce_gov import patents_search
+            from agent_eye.commerce_gov import patents_search
             result = patents_search(arguments["query"], arguments.get("limit", 5))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
         elif name == "book_search":
-            from agent_search.media_backends import openlibrary_search
+            from agent_eye.media_backends import openlibrary_search
             result = openlibrary_search(arguments["query"], arguments.get("limit", 5))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
         elif name == "anime_search":
-            from agent_search.media_backends import anilist_search
+            from agent_eye.media_backends import anilist_search
             result = anilist_search(arguments["query"], arguments.get("limit", 5))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
         elif name == "job_search":
-            from agent_search.commerce_gov import jobs_search
+            from agent_eye.commerce_gov import jobs_search
             result = jobs_search(arguments["query"], arguments.get("country", "us"))
             return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False) if result else "No results")]
 
@@ -285,7 +285,7 @@ async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
         elif name == "compare":
             r1 = search_engine.search(arguments["query1"], arguments.get("limit", 5))
             r2 = search_engine.search(arguments["query2"], arguments.get("limit", 5))
-            from agent_search.templates import compare_results
+            from agent_eye.templates import compare_results
             comparison = compare_results(
                 r1.get("data", {}).get("web", []),
                 r2.get("data", {}).get("web", []),
