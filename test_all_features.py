@@ -1,4 +1,4 @@
-from agent_search.core import AgentSearchLite
+from agent_eye.core import AgentSearchLite
 import time
 
 search = AgentSearchLite()
@@ -144,7 +144,7 @@ print()
 # Test 15: Bookmark
 print('TEST 15: Bookmarking')
 print('-'*50)
-from agent_search.bookmarks import add_bookmark, load_bookmarks
+from agent_eye.bookmarks import add_bookmark, load_bookmarks
 add_bookmark('https://github.com/test', 'Test Bookmark', 'A test bookmark', ['test', 'python'])
 bookmarks = load_bookmarks()
 if bookmarks:
@@ -189,7 +189,7 @@ print()
 # Test 19: Compare
 print('TEST 19: Compare')
 print('-'*50)
-from agent_search.templates import compare_results
+from agent_eye.templates import compare_results
 comparison = compare_results(
     [{'url': 'https://a.com', 'title': 'A'}, {'url': 'https://b.com', 'title': 'B'}],
     [{'url': 'https://a.com', 'title': 'A'}, {'url': 'https://c.com', 'title': 'C'}]
@@ -203,7 +203,7 @@ print()
 # Test 20: Content search
 print('TEST 20: Content Search')
 print('-'*50)
-from agent_search.templates import search_content
+from agent_eye.templates import search_content
 matches = search_content('This is a test about Python async programming. Python is great.', 'Python', 20)
 if matches:
     print(f'Content search OK: {len(matches)} matches')
@@ -214,7 +214,7 @@ print()
 # Test 21: Templates
 print('TEST 21: Templates')
 print('-'*50)
-from agent_search.templates import get_template_names, apply_template
+from agent_eye.templates import get_template_names, apply_template
 templates = get_template_names()
 template = apply_template('code_search', topic='async HTTP', lang='python')
 if templates and template:
@@ -226,7 +226,7 @@ print()
 # Test 22: Batch process
 print('TEST 22: Batch Process')
 print('-'*50)
-from agent_search.batch_collector import batch_process_urls
+from agent_eye.batch_collector import batch_process_urls
 batch = batch_process_urls(['https://example.com'], extract_content=True, extract_seo=False, max_workers=1)
 if batch:
     print(f'Batch OK: {len(batch)} URLs processed')

@@ -1,4 +1,4 @@
-from agent_search.core import AgentSearchLite
+from agent_eye.core import AgentSearchLite
 import time
 import json
 
@@ -284,7 +284,7 @@ print()
 # ---------------------------------------------------------------------------
 print('SCENARIO 16: Bookmark & Collections')
 print('-'*80)
-from agent_search.bookmarks import add_bookmark, load_bookmarks, create_collection, add_to_collection
+from agent_eye.bookmarks import add_bookmark, load_bookmarks, create_collection, add_to_collection
 add_bookmark('https://github.com/test-agent-lens', 'AgentLens Test', 'Testing bookmark system', ['test', 'agent-lens'])
 bookmarks = load_bookmarks()
 print(f'  ✅ Bookmarks - {len(bookmarks)} saved')
